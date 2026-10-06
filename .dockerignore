@@ -1,0 +1,17 @@
+.env
+.venv
+__pycache__
+.pytest_cache
+tests
+.git
+.DS_Store
+.env.*
+
+# Deployment-specific identity policy and public keys are provisioned separately.
+identity-config/
+
+# Deployment-only database credentials and CA trust
+memory-config/
+
+# Personal prompts stay on the host and can be mounted explicitly.
+prompts/assistant.md

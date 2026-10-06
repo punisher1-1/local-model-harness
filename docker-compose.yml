@@ -1,0 +1,22 @@
+services:
+  local-model-harness:
+    build: .
+    env_file: .env
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./profiles.yaml:/app/profiles.yaml:ro
+      - ./prompts:/app/prompts:ro
+      - ./demo_notes:/app/demo_notes:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8200/health/live')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

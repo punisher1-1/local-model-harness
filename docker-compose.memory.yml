@@ -1,0 +1,7 @@
+# Opt-in: docker compose -f docker-compose.yml -f docker-compose.memory.yml up -d --build
+services:
+  local-model-harness:
+    environment:
+      HARNESS_MEMORY_CONFIG: /app/memory-config/memory.yaml
+    volumes:
+      - ./memory-config:/app/memory-config:ro

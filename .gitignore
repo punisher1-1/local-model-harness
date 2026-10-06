@@ -1,0 +1,18 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+.env.*
+!.env.example
+
+# Deployment-specific identity policy and public keys are provisioned separately.
+identity-config/
+
+# Deployment-only database credentials and CA trust
+memory-config/
+docker-compose.override.yml
+
+# Personal system prompt; keep prompts/assistant.md.example as the shared template
+prompts/assistant.md

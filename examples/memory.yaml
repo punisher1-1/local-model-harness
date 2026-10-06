@@ -1,0 +1,17 @@
+# Copy into an ignored memory-config directory; paths are relative to this file.
+namespace: club_demo
+host: memory-db.example.test
+port: 5432
+database: local_ai_memory
+user: harness_memory_app
+password_file: database-password
+sslrootcert: ca.crt
+# Explicit lab opt-in: every holder of the harness API key shares these memories.
+# Leave false when deploying with individually verified JWT identities.
+allow_shared_service_identity: false
+
+# Distinct database namespaces; legacy remains the namespace above.
+# Enable these before using local-home/local-work. Never alias two scopes.
+scope_namespaces:
+  home: harness_home
+  work: harness_work

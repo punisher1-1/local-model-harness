@@ -1,0 +1,29 @@
+# Minimal profile for an OpenAI-compatible server without vLLM /tokenize.
+# Set backend_model to the exact ID advertised by your server's /v1/models.
+# Set context_window and max_output_tokens to fit that server's configured capacity.
+# UTF-8 estimation is a heuristic; the backend is the final context authority.
+max_request_bytes: 1048576
+max_concurrent_requests: 4
+request_timeout_seconds: 180
+profiles:
+  local-assistant:
+    backend_model: local-model
+    system_prompt_file: prompts/assistant.md.example
+    rules:
+      - Do not fabricate sources, quotations, tool results, or actions performed.
+      - State uncertainty when you lack enough information.
+    temperature: null
+    top_p: null
+    presence_penalty: null
+    max_output_tokens: 2048
+    context_window: 16384
+    context_margin: 256
+    token_count_mode: utf8_estimate
+    overflow: reject
+    client_system_prompt: discard
+    allow_client_params: []
+    chat_memory: false
+    memory_recall:
+      enabled: false
+    compaction:
+      enabled: false
