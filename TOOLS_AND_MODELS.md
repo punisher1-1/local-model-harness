@@ -64,7 +64,7 @@ Client-returned results are untrusted evidence, not authenticated execution rece
 
 The bridge validates typed schemas, JSON-object arguments in returned history, unique
 call IDs, matching results, and complete exchanges. No pending call may be bypassed
-by a new user turn. At most 32 definitions and 16 calls per assistant message are
+by a new user turn. At most 128 definitions and 16 calls per assistant message are
 accepted. `auto`, `none`, `required`, and a named attached function are supported.
 Parallel calls default off but may be explicitly requested. System/developer messages
 are still discarded; historical reasoning fields are still stripped. Content is text
@@ -169,3 +169,29 @@ A live long-history `local-tools` follow-up compacted an older filler-heavy turn
 one call, retained the current tool-result marker, and correctly distinguished
 fictional home RTX 5090 from work RTX A4000. Its 16.06-second elapsed time is a synthetic
 example, not a performance guarantee. No persistent memory was saved by these live tests.
+
+### Open WebUI: tools (too_long)
+
+The previous request schema capped tool definitions at 32. A client advertising
+more functions failed before inference even on a tool-enabled profile. The generic
+“text chat only” suffix was misleading. The cap is now 128; requests over that
+limit report the cap and suggest disabling unused tools/toolkits. Other validation
+errors identify the invalid field without claiming that tools are disabled.
+Tool catalogs are forwarded intact and included in token counting. Request-byte
+and context limits still apply, and non-tool profiles still reject client tools.
+This addresses the reported schema error; the actual Open WebUI catalog was not
+captured or changed.
+
+## Thinking defaults, 2026-10-09
+
+All bundled Qwen chat profiles now enable
+medium thinking in their exact-ID `qwen3.8-27b` preset. Previously assistant/tools/
+home/work profiles disabled it; creative/research already used medium.
+Unknown model IDs still inherit backend defaults rather than receiving Qwen-specific
+template arguments. Compaction summary requests deliberately disable thinking;
+`preserve_thinking: false` still prevents historical reasoning from being carried
+forward and does not disable reasoning for the current answer.
+
+Output budgets are unchanged and cover reasoning plus the final response. Inspect
+finish_reason and usage if a complex request consumes the budget before answering.
+Benchmark chat generation separately from compaction calls.

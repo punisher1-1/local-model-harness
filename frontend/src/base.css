@@ -1,0 +1,46 @@
+:root {
+  color-scheme: dark;
+  /* Neutral gray frame; blue is reserved for accents and the chat itself. */
+  --bg-primary: #1c1c20;
+  --bg-secondary: #26262b;
+  --bg-tertiary: #34343a;
+  --bg-glass: #26262b;
+  --bg-input: #000000;
+  --text-primary: #ededf0;
+  --text-secondary: #a1a1aa;
+  --accent-color: #a8c7fa;
+  --accent-hover: #c8dcff;
+  --accent-glow: #a8c7fa24;
+  --accent-ink: #10213c;
+  --user-bubble: #2a4772;
+  --user-bubble-border: #3d6197;
+  --ai-bubble: #19243a;
+  --ai-bubble-border: #3c5072;
+  --border-color: #36363c;
+  --border-glass: #44444b;
+  --border-input: #2e2e33;
+  --danger: #ffb6b3;
+  --shadow-sm: 0 4px 10px #0003;
+  --shadow-lg: 0 12px 32px #0005;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-full: 9999px;
+  --transition-fast: .15s ease-out;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; -webkit-font-smoothing: antialiased; overflow: hidden; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); }
+button:disabled { cursor: default; opacity: .45; }
+select, input { border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-secondary); padding: 8px 12px; }
+:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+::selection { background: #385a8c; color: #fff; }
+* { scrollbar-width: thin; scrollbar-color: #4a4a52 transparent; }
+.glass-panel { background: var(--bg-glass); border: 1px solid var(--border-glass); }
+.eyebrow { color: var(--accent-color); font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.muted { color: var(--text-secondary); font-size: 12px; }
+.error, [role=alert] { color: var(--danger); font-size: 13px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

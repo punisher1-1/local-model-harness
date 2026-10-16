@@ -1,6 +1,7 @@
 """Policy-owned, text-only OpenAI-compatible local inference gateway."""
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 import hashlib
 import json
 import logging
@@ -17,16 +18,49 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator, field_validator
 
-from backend import BackendPreset, catalog, resolve_profile, runtime_headers
+from skill_loader import load_skills, select_skill, describe_skill, SKILL_ID
+from mcp_registry import HEADER as MCP_HEADER, known as known_mcp, validate_startup as validate_mcp, selected_servers, request_prompt as mcp_prompt, catalog as mcp_catalog
+from backend import BackendPreset, catalog, resolve_profile, runtime_headers, thinking_budget
 from chat_memory import chat_save_response, RULES as CHAT_MEMORY_RULES
 from client_tools import ToolCall, ToolDefinition, NamedChoice, prepare_history, RULES as CLIENT_TOOL_RULES
 from telemetry import backend_metrics, record_usage, attach_accounting
 from research import ResearchPolicy, NoteStore, research_response
 from identity import IdentityProvider
+from sessions import COOKIE as SESSION_COOKIE, SessionStore, install_sessions
 from compaction import CompactionPolicy, compact_context, context_headers, CONTEXT_RULES, context_notice
 from memory import allowed_scopes, MemoryConfig, MemoryStore, install_routes, permissions as memory_permissions, RecallPolicy, apply_recall, recall_headers, RECALL_RULES
 
 log = logging.getLogger("uvicorn.error")
+MAX_CLIENT_TOOL_DEFINITIONS = 128
+
+
+class EmptyAnswerError(ValueError):
+    pass
+
+
+class AnswerState:
+    """Track response metadata without logging generated text."""
+    def __init__(self):
+        self.text = False
+        self.tools = False
+        self.reasoning = False
+        self.finish_reason = None
+
+    def observe(self, event, streaming=False):
+        for choice in event.get("choices", []):
+            message = choice.get("delta" if streaming else "message") or {}
+            self.text |= bool((message.get("content") or "").strip())
+            self.tools |= bool(message.get("tool_calls"))
+            self.reasoning |= bool(message.get("reasoning_content") or message.get("reasoning"))
+            if choice.get("finish_reason") is not None:
+                self.finish_reason = choice["finish_reason"]
+
+    def require_answer(self):
+        if self.text or self.tools:
+            return
+        detail = ("The output token limit was reached; increase the profile output allowance or reduce reasoning effort."
+                  if self.finish_reason == "length" else "Check upstream generation and reasoning settings.")
+        raise EmptyAnswerError("Backend returned no final text or tool calls. " + detail)
 
 
 class Profile(BaseModel):
@@ -34,6 +68,8 @@ class Profile(BaseModel):
     backend_model: str = Field(min_length=1)
     system_prompt_file: str
     rules: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list, max_length=16)
+    default_skill: str | None = None
     temperature: float | None = Field(default=0.2, ge=0, le=2)
     top_p: float | None = Field(default=0.9, gt=0, le=1)
     presence_penalty: float | None = Field(default=0.0, ge=-2, le=2)
@@ -48,7 +84,11 @@ class Profile(BaseModel):
     seed: int | None = None
     stop: list[str] = Field(default_factory=list, max_length=4)
     backend_options: dict = Field(default_factory=dict)
+    thinking_budget_ratio: float | None = Field(default=None, gt=0, lt=1)
     backend_presets: dict[str, BackendPreset] = Field(default_factory=dict)
+    mcp_vault: bool = False  # deprecated alias for mcp_servers: [vault]
+    mcp_servers: list[str] = Field(default_factory=list, max_length=8)
+    mcp_default: list[str] | None = None  # None: every allowed server runs when a client makes no choice
     client_tools: bool = False
     research: ResearchPolicy | None = None
     chat_memory: bool = False
@@ -57,14 +97,35 @@ class Profile(BaseModel):
 
     @model_validator(mode="after")
     def valid_budget(self):
+        if len(set(self.skills)) != len(self.skills) or any(not SKILL_ID.fullmatch(s) for s in self.skills):
+            raise ValueError("Skills must be unique safe identifiers")
+        if (self.skills and self.default_skill not in self.skills) or (not self.skills and self.default_skill is not None):
+            raise ValueError("default_skill must name an enabled skill")
         if self.max_output_tokens + self.context_margin >= self.context_window:
             raise ValueError("Output and margin must leave room for the prompt")
-        allowed = {"top_k", "min_p", "repetition_penalty", "chat_template_kwargs"}
+        allowed = {"top_k", "min_p", "repetition_penalty", "chat_template_kwargs", "thinking_token_budget"}
         if self.backend_options.keys() - allowed:
             raise ValueError("Unsupported backend_options; routing and policy cannot be overridden")
         for preset in self.backend_presets.values():
             if preset.backend_options.keys() - allowed:
                 raise ValueError("Unsupported backend preset options")
+        for options in [self.backend_options, *(p.backend_options for p in self.backend_presets.values())]:
+            budget = options.get("thinking_token_budget")
+            if budget is not None and (type(budget) is not int or not 0 <= budget < self.max_output_tokens):
+                raise ValueError("thinking_token_budget must be an integer below max_output_tokens")
+        for owner in [self, *self.backend_presets.values()]:
+            if owner.thinking_budget_ratio is not None and "thinking_token_budget" in owner.backend_options:
+                raise ValueError("Use either thinking_budget_ratio or a fixed thinking_token_budget, not both")
+        if self.mcp_vault and "vault" not in self.mcp_servers:
+            self.mcp_servers = [*self.mcp_servers, "vault"]
+        if self.mcp_default is None:
+            self.mcp_default = list(self.mcp_servers)
+        if len(set(self.mcp_servers)) != len(self.mcp_servers) or any(not known_mcp(s) for s in self.mcp_servers):
+            raise ValueError("mcp_servers must name unique registered MCP servers")
+        if set(self.mcp_default) - set(self.mcp_servers):
+            raise ValueError("mcp_default may only name servers listed in mcp_servers")
+        if self.mcp_servers and (not self.client_tools or self.research):
+            raise ValueError("MCP servers require a client-tools profile without demo research")
         if self.client_tools and (self.research or self.token_count_mode != "vllm" or self.overflow != "reject"):
             raise ValueError("Client tools require exact counting, reject overflow and no research loop")
         if self.research and (self.token_count_mode != "vllm" or self.overflow != "reject"):
@@ -132,48 +193,76 @@ class Chat(BaseModel):
     metadata: dict | None = None
     n: Literal[1] = 1
     # Only the opt-in client-tools profile forwards function definitions and choices.
-    tools: list[ToolDefinition] | None = Field(default=None, max_length=32)
+    tools: list[ToolDefinition] | None = Field(default=None, max_length=MAX_CLIENT_TOOL_DEFINITIONS)
     tool_choice: Literal["none", "auto", "required"] | NamedChoice | None = None
     parallel_tool_calls: bool | None = None
+
+
+@dataclass(frozen=True)
+class LoadedProfiles:
+    settings: Settings
+    prompts: dict
+    fingerprints: dict
+    research_stores: dict
+    skill_info: dict
+
+
+def load_profiles(path):
+    """Validate a profiles file and everything it references, exactly as startup does.
+
+    Shared by the harness lifespan and scripts/check_config.py, so a config that
+    passes the check is one the harness will accept.
+    """
+    path = Path(path).resolve()
+    settings = Settings.model_validate(yaml.safe_load(path.read_text()))
+    research_stores = {}
+    prompts = {}
+    fingerprints = {}
+    for name, profile in settings.profiles.items():
+        if profile.backend_model.startswith("REPLACE_"):
+            raise RuntimeError(f"Configure backend_model for profile {name}")
+        prompt = (path.parent / profile.system_prompt_file).read_text().strip()
+        if not prompt:
+            raise RuntimeError(f"Empty system prompt for {name}")
+        prompts[name] = prompt + "\n\nRules:\n" + "\n".join(f"- {r}" for r in profile.rules)
+        prompts[name] += load_skills(path.parent, profile)
+        # MCP rules are added per request, only for the servers actually selected.
+        validate_mcp(profile.mcp_servers)
+        if profile.client_tools:
+            prompts[name] += "\n\n" + CLIENT_TOOL_RULES
+        if profile.compaction.enabled:
+            prompts[name] += "\n\n" + CONTEXT_RULES
+        if profile.memory_recall.enabled:
+            prompts[name] += "\n\n" + RECALL_RULES
+        if profile.chat_memory:
+            prompts[name] += "\n\n" + CHAT_MEMORY_RULES
+        if profile.research:
+            research_stores[name] = NoteStore(path.parent, profile.research.notes_directory)
+        fingerprints[name] = hashlib.sha256(json.dumps({"profile": profile.model_dump(), "prompt": prompts[name]}, sort_keys=True).encode()).hexdigest()
+    skill_info = {s: describe_skill(path.parent, s) for p in settings.profiles.values() for s in p.skills}
+    return LoadedProfiles(settings=settings, prompts=prompts, fingerprints=fingerprints,
+                          research_stores=research_stores, skill_info=skill_info)
 
 
 def create_app(config_path=None, api_key=None, backend_url=None, transport=None, identity_path=None, memory_path=None):
     @asynccontextmanager
     async def lifespan(app):
         path = Path(config_path or os.getenv("HARNESS_CONFIG", "profiles.yaml")).resolve()
-        settings = Settings.model_validate(yaml.safe_load(path.read_text()))
+        loaded = load_profiles(path)
+        settings = loaded.settings
         key = api_key or os.getenv("HARNESS_API_KEY", "")
         app.state.identity = IdentityProvider(identity_path or os.getenv("HARNESS_IDENTITY_CONFIG"), key, settings.profiles)
+        app.state.sessions = SessionStore.from_env()
         url = (backend_url or os.getenv("GEN_URL", "http://gpu-node:8000/v1")).rstrip("/")
         parsed = urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.query or parsed.fragment or not parsed.path.endswith("/v1"):
             raise RuntimeError("GEN_URL must be an http(s) URL ending in /v1, without credentials/query")
-        research_stores = {}
-        prompts = {}
-        fingerprints = {}
-        for name, profile in settings.profiles.items():
-            if profile.backend_model.startswith("REPLACE_"):
-                raise RuntimeError(f"Configure backend_model for profile {name}")
-            prompt = (path.parent / profile.system_prompt_file).read_text().strip()
-            if not prompt:
-                raise RuntimeError(f"Empty system prompt for {name}")
-            prompts[name] = prompt + "\n\nRules:\n" + "\n".join(f"- {r}" for r in profile.rules)
-            if profile.client_tools:
-                prompts[name] += "\n\n" + CLIENT_TOOL_RULES
-            if profile.compaction.enabled:
-                prompts[name] += "\n\n" + CONTEXT_RULES
-            if profile.memory_recall.enabled:
-                prompts[name] += "\n\n" + RECALL_RULES
-            if profile.chat_memory:
-                prompts[name] += "\n\n" + CHAT_MEMORY_RULES
-            if profile.research:
-                research_stores[name] = NoteStore(path.parent, profile.research.notes_directory)
-            fingerprints[name] = hashlib.sha256(json.dumps({"profile": profile.model_dump(), "prompt": prompts[name]}, sort_keys=True).encode()).hexdigest()
-        app.state.research_stores = research_stores
+        app.state.research_stores = loaded.research_stores
+        app.state.skill_info = loaded.skill_info
         app.state.settings = settings
         app.state.key = key
-        app.state.prompts = prompts
-        app.state.fingerprints = fingerprints
+        app.state.prompts = loaded.prompts
+        app.state.fingerprints = loaded.fingerprints
         app.state.slots = asyncio.Semaphore(settings.max_concurrent_requests)
         headers = {}
         if os.getenv("GEN_API_KEY"):
@@ -194,13 +283,23 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
     app = FastAPI(title="Local Model Harness", lifespan=lifespan)
 
     async def auth(request: Request):
-        principal = app.state.identity.authenticate(request.headers.get("authorization", ""))
+        # An explicit bearer credential always wins; the chat UI's session cookie is the fallback.
+        header = request.headers.get("authorization")
+        if header is None and SESSION_COOKIE in request.cookies:
+            principal = app.state.sessions.authenticate(request)
+        else:
+            principal = app.state.identity.authenticate(header or "")
         request.state.principal = principal
         return principal
 
     install_routes(app, auth)
+    install_sessions(app)
     from memory_ui import install_ui
     install_ui(app)
+    from chat_ui import install_chat_ui
+    install_chat_ui(app)
+    from conversation_store import install_conversations
+    install_conversations(app, auth)
 
     @app.exception_handler(HTTPException)
     async def error(request, exc):
@@ -240,6 +339,21 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
     async def models(request: Request):
         return {"object": "list", "data": [{"id": name, "object": "model", "created": 0, "owned_by": "local-harness"} for name in app.state.settings.profiles if request.state.principal.can_profile(name)]}
 
+    @app.get("/v1/profiles", dependencies=[Depends(auth)])
+    async def profile_catalog(request: Request):
+        principal = request.state.principal
+        rows = []
+        for name, profile in app.state.settings.profiles.items():
+            if not principal.can_profile(name):
+                continue
+            servers = mcp_catalog(name, profile, principal)
+            rows.append({"id": name, "skills": profile.skills, "default_skill": profile.default_skill,
+                         "skill_info": [app.state.skill_info[s] for s in profile.skills],
+                         "mcp_servers": servers,
+                         # Compatibility with clients that read the original vault-only field.
+                         **({"server_tools": next((s["tools"] for s in servers if s["id"] == "vault"), [])} if "vault" in profile.mcp_servers else {})})
+        return {"data": rows}
+
     @app.post("/v1/chat/completions", dependencies=[Depends(auth)])
     async def chat(request: Request):
         raw = bytearray()
@@ -258,7 +372,9 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
             ]
             log.info(json.dumps({"event": "request_validation_failed", "issues": issues}))
             detail = "; ".join(f"{item['field'] or 'body'} ({item['type']})" for item in issues)
-            raise HTTPException(400, "Invalid request: " + detail + ". This profile supports text chat only.")
+            if any(item["field"] == "tools" and item["type"] == "too_long" for item in issues):
+                raise HTTPException(400, f"Too many tool definitions; the harness accepts at most {MAX_CLIENT_TOOL_DEFINITIONS}. Disable unused tools/toolkits in the client and retry.")
+            raise HTTPException(400, "Invalid request: " + detail + ". Check the indicated field against the harness request schema.")
         principal = request.state.principal
         # Identity and authorization are server-owned; body.user/metadata are not claims.
         profile = app.state.settings.profiles.get(body.model)
@@ -274,11 +390,17 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
         if body.stream_options is not None:
             if body.stream_options.keys() - {"include_usage"} or not isinstance(body.stream_options.get("include_usage", False), bool):
                 raise HTTPException(400, "Only stream_options.include_usage is supported")
+        history, system_prompt, selected_skill, profile_fingerprint = select_skill(
+            profile, history, app.state.prompts[body.model], app.state.fingerprints[body.model])
+        servers = selected_servers(profile, request.headers.get(MCP_HEADER))
+        # Client-attached tools and an explicit tool_choice of none take precedence over harness MCP.
+        servers = servers if not tool_payload.get("tools") and body.tool_choice != "none" else ()
+        system_prompt, profile_fingerprint = mcp_prompt(system_prompt, profile_fingerprint, servers)
         saved = await chat_save_response(app, profile, principal, history, body.model, body.stream, body.stream_options is None or body.stream_options.get("include_usage", False))
         if saved is not None:
             return saved
         profile = await resolve_profile(app, profile)
-        messages = [{"role": "system", "content": app.state.prompts[body.model]}, *history]
+        messages = [{"role": "system", "content": system_prompt}, *history]
         payload = {"model": profile.backend_model, "messages": messages, "stream": body.stream,
                    "temperature": profile.temperature, "top_p": profile.top_p,
                    "presence_penalty": profile.presence_penalty,
@@ -292,15 +414,19 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
             value = (body.max_tokens or body.max_completion_tokens) if param == "max_tokens" else getattr(body, param)
             if value is not None:
                 payload[param] = min(value, profile.max_output_tokens) if param == "max_tokens" else value
+        budget = thinking_budget(profile, payload["max_tokens"], payload.get("thinking_token_budget"))
+        if budget is not None:
+            payload["thinking_token_budget"] = budget
         if body.stream_options is not None:
             if body.stream:
                 payload["stream_options"] = body.stream_options
         if body.stream and body.stream_options is None:
             payload["stream_options"] = {"include_usage": True}
         recall_state = await apply_recall(app, profile, principal, messages)
-        if profile.research:
-            result = await research_response(app, profile, payload, body.model, body.stream, principal)
-            result.headers.update({**recall_headers(recall_state), **runtime_headers(profile)})
+        if profile.research or servers:
+            result = await research_response(app, profile, payload, body.model, body.stream, principal, servers)
+            result.headers.update({**recall_headers(recall_state), **runtime_headers(profile), "X-Harness-Skill-Selection": selected_skill,
+                                   "X-Harness-MCP": ",".join(servers) or "none"})
             return result
         if app.state.slots.locked():
             raise HTTPException(429, "Harness concurrency limit reached", headers={"Retry-After": "1"})
@@ -313,14 +439,18 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
         dropped = 0
         count = None
         outcome = "failed"
+        answer = AnswerState()
 
         def audit(status):
             log.info(json.dumps({"event": "generation", "request_id": rid, "profile": body.model,
-                "profile_sha256": app.state.fingerprints[body.model], "backend_model": profile.backend_model,
-                "status": status, "elapsed_ms": round((time.monotonic() - started) * 1000),
+                "profile_sha256": profile_fingerprint, "skill_selection": selected_skill, "backend_model": profile.backend_model,
+                "status": status, "finish_reason": answer.finish_reason,
+                "has_text": answer.text, "has_tool_calls": answer.tools, "has_reasoning": answer.reasoning,
+                "elapsed_ms": round((time.monotonic() - started) * 1000),
                 "prompt_tokens_or_estimate": count, "token_count_mode": profile.token_count_mode,
                 "dropped_messages": dropped, "temperature": payload.get("temperature"), "top_p": payload.get("top_p"),
-                "max_tokens": payload["max_tokens"], "seed": payload.get("seed"),
+                "max_tokens": payload["max_tokens"], "thinking_token_budget": payload.get("thinking_token_budget"),
+                "seed": payload.get("seed"),
                 "presence_penalty": payload.get("presence_penalty"),
                 "enable_thinking": profile.backend_options.get("chat_template_kwargs", {}).get("enable_thinking"),
                 "reasoning_effort": profile.backend_options.get("chat_template_kwargs", {}).get("reasoning_effort")}))
@@ -352,13 +482,15 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                     del messages[1:next_user]
                 response = await app.state.client.send(app.state.client.build_request("POST", app.state.url + "/chat/completions", json=payload, timeout=deadline), stream=True)
                 response.raise_for_status()
-                headers = {"X-Request-ID": rid, "X-Harness-Profile-SHA256": app.state.fingerprints[body.model],
+                headers = {"X-Request-ID": rid, "X-Harness-Profile-SHA256": profile_fingerprint, "X-Harness-Skill-Selection": selected_skill, "X-Harness-MCP": "none",
                            "X-Harness-Dropped-Messages": str(dropped), **recall_headers(recall_state), **context_headers(compact_state), **runtime_headers(profile)}
                 if not body.stream:
                     await response.aread()
                     result = response.json()
                     attach_accounting(result, compact_state)
                     record_usage(result.get("usage"), rid, body.model, profile.backend_model)
+                    answer.observe(result)
+                    answer.require_answer()
                     result["model"] = body.model
                     if compact_state["status"] == "compacted":
                         for choice in result.get("choices", []):
@@ -386,6 +518,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                                 continue
                             data = line[5:].strip()
                             if data == "[DONE]":
+                                answer.require_answer()
                                 if compact_state["status"] == "compacted" and not notice_sent:
                                     yield notice_event()
                                     notice_sent = True
@@ -395,8 +528,13 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                             event = json.loads(data)
                             if "error" in event:
                                 raise ValueError("Backend stream error")
+                            answer.observe(event, streaming=True)
                             attach_accounting(event, compact_state)
                             record_usage(event.get("usage"), rid, body.model, profile.backend_model)
+                            if (any(c.get("finish_reason") is not None for c in event.get("choices", []))
+                                    and not (answer.text or answer.tools)):
+                                # Drain usage until DONE, but do not send an empty success marker.
+                                continue
                             event["model"] = body.model
                             stream_identity.update({k: event[k] for k in ("id", "created", "object") if k in event})
                             if (compact_state["status"] == "compacted" and not notice_sent
@@ -411,6 +549,10 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                                 notice_sent = True
                             yield "data: " + json.dumps(event) + "\n\n"
                         raise ValueError("Backend stream ended without DONE")
+                except EmptyAnswerError as exc:
+                    status = "empty_response"
+                    yield "data: " + json.dumps({"error": {"message": str(exc), "type": "upstream_error", "code": "empty_response"}}) + "\n\n"
+                    yield "data: [DONE]\n\n"
                 except (httpx.HTTPError, TimeoutError, ValueError, TypeError):
                     status = "stream_failed"
                     yield 'data: {"error":{"message":"Backend stream interrupted","type":"upstream_error"}}\n\n'
@@ -424,6 +566,9 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
 
             transferred = True
             return StreamingResponse(events(), media_type="text/event-stream", headers={**headers, "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        except EmptyAnswerError as exc:
+            outcome = "empty_response"
+            raise HTTPException(502, str(exc)) from exc
         except (httpx.TimeoutException, TimeoutError):
             raise HTTPException(504, "Backend deadline exceeded")
         except (httpx.HTTPError, ValueError, KeyError, TypeError):

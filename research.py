@@ -12,11 +12,14 @@ import uuid
 import httpx
 from telemetry import record_usage, attach_accounting
 from compaction import compact_context, NOTICE
+from backend import thinking_budget
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 log = logging.getLogger("uvicorn.error")
+# Tools whose arguments carry a note body or a script, not a short query.
+LARGE_ARGUMENT_TOOLS = frozenset({"vault_create_note", "vault_append", "python_run"})
 
 
 class ResearchProtocolError(ValueError):
@@ -111,6 +114,38 @@ class NoteStore:
             return {"error": "invalid_tool_arguments"}
 
 
+def describe_call(name, args):
+    """One short line for the reasoning trace: the target of a call, never full bodies or scripts."""
+    args = args if isinstance(args, dict) else {}
+    if name == "python_run":
+        lines = [l for l in str(args.get("code", "")).splitlines() if l.strip()]
+        target = (lines[0] if lines else "") + (f" … ({len(lines)} lines)" if len(lines) > 1 else "")
+    elif name in {"vault_create_note", "vault_append"}:
+        body = args.get("content", args.get("text", ""))
+        target = f"{args.get('path', '')} ({len(str(body)):,} chars)"
+    else:
+        target = next((str(args[k]) for k in ("query", "path_prefix", "path", "url", "note_id") if k in args), "")
+    target = target if len(target) <= 160 else target[:157] + "…"
+    return f"→ {name}({target})"
+
+
+def describe_result(result):
+    if result.get("error"):
+        return f"  ✗ {result['error']}" + (f" ({result['reason']})" if result.get("reason") else "")
+    if "exit_code" in result:
+        return f"  ✓ exit {result['exit_code']}" + (" (timed out)" if result.get("timed_out") else "")
+    for key, noun in (("results", "results"), ("matches", "matches"), ("notes", "notes")):
+        if isinstance(result.get(key), list):
+            return f"  ✓ {len(result[key])} {noun}"
+    if result.get("status"):
+        return f"  ✓ {result['status']} {result.get('path', '')}".rstrip()
+    if isinstance(result.get("content"), str):
+        return f"  ✓ read {len(result['content']):,} chars" + (" (truncated)" if result.get("truncated") else "")
+    if isinstance(result.get("text"), str):
+        return f"  ✓ read {len(result['text']):,} chars" + (" (truncated)" if result.get("truncated") else "")
+    return "  ✓ ok"
+
+
 async def bounded_json(client, url, payload, timeout):
     async with client.stream("POST", url, json=payload, timeout=timeout) as response:
         response.raise_for_status()
@@ -125,11 +160,41 @@ async def bounded_json(client, url, payload, timeout):
         return value
 
 
-async def run_research(app, profile, payload, public_model, rid, principal):
-    policy = profile.research
-    store = app.state.research_stores[public_model]
+async def run_research(app, profile, payload, public_model, rid, principal, servers=(), progress=None):
+    """Bounded tool loop. progress, if given, receives each reasoning step as it happens."""
+    steps = []
+
+    def step(text):
+        if text:
+            steps.append(text)
+            if progress:
+                progress(text)
+
+    is_mcp = bool(servers)
+    if is_mcp:
+        from mcp_registry import server as mcp_server
+        registered = [mcp_server(s) for s in servers]
+        # Fresh stores per request: discovery receipts never leak between requests.
+        stores = {s.id: s.factory() for s in registered}
+        owner = {t: s for s in registered for t in s.tools}
+        policy = ResearchPolicy(notes_directory="unused",max_tool_calls=6,max_round_output_tokens=8192)
+        schemas = [t for s in registered for t in s.schemas]
+        catalog_sha256 = hashlib.sha256("".join(stores[s].sha256 for s in servers).encode()).hexdigest()
+        activity_label = "Vault MCP activity: " if servers == ("vault",) else "MCP activity (" + ", ".join(s.label for s in registered) + "): "
+    else:
+        policy = profile.research
+        store = app.state.research_stores[public_model]
+        schemas, stores, owner = TOOL_SCHEMAS, {}, {}
+        catalog_sha256 = store.sha256
+        activity_label = "Demo research activity: "
+    vault = stores.get("vault")
+
+    def collection(name):
+        return owner[name].collection if name in owner else "demo_notes"
+
+    tool_names = {t["function"]["name"] for t in schemas}
     principal.require_profile(public_model)
-    permitted_tools = [t for t in TOOL_SCHEMAS if principal.can_tool(public_model, t["function"]["name"])]
+    permitted_tools = [t for t in schemas if principal.can_tool(public_model, t["function"]["name"], collection(t["function"]["name"]))]
     started = time.monotonic()
     deadline = profile.request_timeout_seconds or app.state.settings.request_timeout_seconds
     messages = list(payload["messages"])
@@ -154,6 +219,11 @@ async def run_research(app, profile, payload, public_model, rid, principal):
                 if remaining <= 0:
                     raise HTTPException(400, "Research output budget exhausted before final answer")
                 can_call = calls_used < policy.max_tool_calls and bool(permitted_tools)
+                force_read = (vault is not None and can_call and vault.seen and not vault.read_paths and not vault.writes
+                              and vault.discovery_calls >= 2
+                              and principal.can_tool(public_model,"vault_read_note",collection("vault_read_note")))
+                round_tools = ([t for t in permitted_tools if t["function"]["name"]=="vault_read_note"]
+                               if force_read else permitted_tools)
                 if not can_call:
                     messages[0]["content"] += "\nTool budget reached. Give a final answer from the evidence already returned; acknowledge any gaps."
                     # A fresh, harness-authored turn makes finalization explicit to
@@ -168,7 +238,7 @@ async def run_research(app, profile, payload, public_model, rid, principal):
                 token_payload = {"model": payload["model"], "messages": messages,
                                  "add_generation_prompt": True}
                 if can_call:
-                    token_payload["tools"] = permitted_tools
+                    token_payload["tools"] = round_tools
                 if "chat_template_kwargs" in payload:
                     token_payload["chat_template_kwargs"] = payload["chat_template_kwargs"]
                 stage = "tokenize"
@@ -182,10 +252,13 @@ async def run_research(app, profile, payload, public_model, rid, principal):
                 if count + round_limit + profile.context_margin > profile.context_window:
                     raise HTTPException(400, "Research context budget exceeded; shorten the conversation")
                 request_payload = {**payload, "messages": messages, "stream": False,
-                    "tool_choice": "auto" if can_call else "none",
+                    "tool_choice": ({"type":"function","function":{"name":"vault_read_note"}} if force_read else "auto") if can_call else "none",
                     "parallel_tool_calls": False, "max_tokens": round_limit}
                 if can_call:
-                    request_payload["tools"] = permitted_tools
+                    request_payload["tools"] = round_tools
+                budget = thinking_budget(profile, round_limit, request_payload.get("thinking_token_budget"))
+                if budget is not None:
+                    request_payload["thinking_token_budget"] = budget
                 request_payload.pop("stream_options", None)
                 stage = "generate"
                 result = await bounded_json(app.state.client, app.state.url + "/chat/completions", request_payload, deadline)
@@ -208,18 +281,25 @@ async def run_research(app, profile, payload, public_model, rid, principal):
                 tool_calls = message.get("tool_calls") or []
                 if choice.get("finish_reason") == "length":
                     raise HTTPException(400, "Research round hit its output limit before completion; shorten the task or adjust the research budget")
+                if force_read and not tool_calls:
+                    raise ResearchProtocolError("reserved_read_not_followed")
+                if is_mcp and len(tool_calls) > 1:
+                    raise ResearchProtocolError("mcp_requires_sequential_calls")
+                reasoning = message.get("reasoning_content") or message.get("reasoning")
+                step(reasoning.strip() if isinstance(reasoning, str) else "")
                 if not tool_calls:
                     content = message.get("content")
                     if choice.get("finish_reason") != "stop" or not isinstance(content, str) or not content.strip():
                         raise ResearchProtocolError("missing_final_answer")
                     activity = " → ".join(trace) if trace else "No tools called"
-                    content += "\n\n---\n*Demo research activity: " + activity + ".*"
+                    content += "\n\n---\n*" + activity_label + activity + ".*"
                     if compact_state["status"] == "compacted":
                         content += NOTICE
                     status = "completed"
                     answer = {"harness_context": compact_state,"id": "chatcmpl-" + rid, "object": "chat.completion", "created": int(time.time()),
                         "model": public_model, "choices": [{"index": 0,
-                            "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+                            "message": {"role": "assistant", "content": content,
+                                        **({"reasoning_content": "\n\n".join(steps)} if steps else {})}, "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": prompt_total, "completion_tokens": output_used,
                                   "total_tokens": prompt_total + output_used}}
                     attach_accounting(answer, compact_state)
@@ -237,40 +317,51 @@ async def run_research(app, profile, payload, public_model, rid, principal):
                         raise ResearchProtocolError("malformed_tool_call")
                     seen_ids.add(cid)
                     arguments = fn.get("arguments")
+                    # Note bodies and scripts need room; every other tool keeps the small argument bound.
+                    limit = 48000 if is_mcp and name in LARGE_ARGUMENT_TOOLS else 2048
                     if isinstance(arguments, str):
-                        if len(arguments) > 2048:
+                        if len(arguments) > limit:
                             raise ResearchProtocolError("tool_arguments_too_large")
                         try:
                             arguments = json.loads(arguments)
                         except ValueError:
                             arguments = None
-                    if arguments is not None and len(json.dumps(arguments)) > 2048:
+                    if arguments is not None and len(json.dumps(arguments)) > limit:
                         raise ResearchProtocolError("tool_arguments_too_large")
                     # vLLM requires JSON strings on the wire and parses them for the Qwen template.
                     normalized.append({"id": cid, "type": "function", "function": {
                         "name": name, "arguments": json.dumps(arguments if isinstance(arguments, dict) else {})}})
                     call["_validated_arguments"] = arguments
                 assistant = {"role": "assistant", "content": message.get("content") or "", "tool_calls": normalized}
-                reasoning = message.get("reasoning_content") or message.get("reasoning")
                 if isinstance(reasoning, str):
                     assistant["reasoning_content"] = reasoning
                 messages.append(assistant)
                 for call, normalized_call in zip(tool_calls, normalized):
                     name = normalized_call["function"]["name"]
                     principal.ensure_current()
-                    allowed = principal.can_tool(public_model, name)
-                    app.state.identity.audit(principal, "tool", name if name in {"search_notes", "read_note"} else "unregistered_tool", allowed, request_id=rid)
+                    allowed = principal.can_tool(public_model, name, collection(name))
+                    app.state.identity.audit(principal, "tool", name if name in tool_names else "unregistered_tool", allowed, request_id=rid)
                     # Recheck profile, action and collection at execution; never trust model choice.
-                    if name in {"search_notes", "read_note"}:
-                        principal.require_tool(public_model, name)
-                    result_data = store.execute(name, call["_validated_arguments"])
+                    if force_read and name != "vault_read_note":
+                        raise ResearchProtocolError("reserved_read_not_followed")
+                    if name in tool_names:
+                        principal.require_tool(public_model, name, collection(name))
+                    step(describe_call(name if name in tool_names else "unregistered_tool", call["_validated_arguments"]))
+                    if not is_mcp:
+                        result_data = store.execute(name, call["_validated_arguments"])
+                    elif name in owner:
+                        result_data = await stores[owner[name].id].execute(name, call["_validated_arguments"])
+                    else:
+                        result_data = {"error": "tool_not_allowed"}
                     calls_used += 1
-                    safe_name = name if name in {"search_notes", "read_note"} else "unregistered_tool"
+                    safe_name = name if name in tool_names else "unregistered_tool"
                     error = result_data.get("error")
-                    trace.append(safe_name + (" (" + error + ")" if error else ""))
+                    reason = result_data.get("reason")
+                    trace.append(safe_name + (" (" + error + (": " + reason if reason else "") + ")" if error else ""))
+                    step(describe_result(result_data))
                     log.info(json.dumps({"event": "research_tool", "request_id": rid, "profile": public_model,
                         "tool": safe_name, "status": error or "ok", "call_number": calls_used,
-                        "catalog_sha256": store.sha256}))
+                        "catalog_sha256": catalog_sha256}))
                     messages.append({"role": "tool", "tool_call_id": normalized_call["id"],
                                      "content": json.dumps(result_data, ensure_ascii=True)})
             raise HTTPException(400, "Research round limit exceeded")
@@ -289,12 +380,12 @@ async def run_research(app, profile, payload, public_model, rid, principal):
         raise
     finally:
         log.info(json.dumps({"event": "research_generation", "request_id": rid, "profile": public_model,
-            "profile_sha256": app.state.fingerprints[public_model], "catalog_sha256": store.sha256,
+            "profile_sha256": app.state.fingerprints[public_model], "catalog_sha256": catalog_sha256,
             "status": status, "tool_calls": calls_used, "completion_tokens": output_used,
             "elapsed_ms": round((time.monotonic() - started) * 1000)}))
 
 
-async def research_response(app, profile, payload, public_model, stream, principal):
+async def research_response(app, profile, payload, public_model, stream, principal, servers=()):
     if app.state.slots.locked():
         raise HTTPException(429, "Harness concurrency limit reached", headers={"Retry-After": "1"})
     await app.state.slots.acquire()
@@ -302,18 +393,32 @@ async def research_response(app, profile, payload, public_model, stream, princip
     headers = {"X-Request-ID": rid, "X-Harness-Profile-SHA256": app.state.fingerprints[public_model]}
     if not stream:
         try:
-            return JSONResponse(await run_research(app, profile, payload, public_model, rid, principal), headers=headers)
+            return JSONResponse(await run_research(app, profile, payload, public_model, rid, principal, servers), headers=headers)
         finally:
             app.state.slots.release()
 
     async def events():
-        # Tool planning and intermediate reasoning stay server-side. The first version
-        # buffers the final answer and emits SSE heartbeats while the loop runs.
-        task = asyncio.create_task(run_research(app, profile, payload, public_model, rid, principal))
+        # Each round's reasoning and every tool call stream as reasoning_content while the
+        # loop runs; the final answer is still delivered whole. Heartbeats cover quiet rounds.
+        steps = asyncio.Queue()
+        task = asyncio.create_task(run_research(app, profile, payload, public_model, rid, principal, servers, steps.put_nowait))
+        base = {"id": "chatcmpl-" + rid, "object": "chat.completion.chunk", "created": int(time.time()), "model": public_model}
+
+        def reasoning_event(text, first):
+            delta = {"reasoning_content": text + "\n\n", **({"role": "assistant"} if first else {})}
+            return "data: " + json.dumps({**base, "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}) + "\n\n"
+
         try:
             yield ": research started\n\n"
-            while not task.done():
-                done, _ = await asyncio.wait({task}, timeout=10)
+            sent = 0
+            while not task.done() or not steps.empty():
+                getter = asyncio.ensure_future(steps.get())
+                done, _ = await asyncio.wait({task, getter}, timeout=10, return_when=asyncio.FIRST_COMPLETED)
+                if getter in done:
+                    yield reasoning_event(getter.result(), sent == 0)
+                    sent += 1
+                    continue
+                getter.cancel()
                 if not done:
                     yield ": research running\n\n"
             result = await task

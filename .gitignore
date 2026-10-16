@@ -16,3 +16,20 @@ docker-compose.override.yml
 
 # Personal system prompt; keep prompts/assistant.md.example as the shared template
 prompts/assistant.md
+
+frontend/node_modules/
+frontend/dist/
+
+# Private chat-history databases and backups
+*.sqlite3
+*.sqlite3-*
+chat-data/
+
+# Local IDE settings
+.idea/
+
+# Deployment-only profile set; docker-compose.override.yml mounts it over profiles.yaml
+profiles.local.yaml
+
+# macOS AppleDouble files left by copying trees from a Mac
+._*

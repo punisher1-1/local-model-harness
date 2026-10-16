@@ -121,7 +121,7 @@ Reference: [vLLM tool calling](https://docs.vllm.ai/en/latest/features/tool_call
 
 ## Lab verification (2026-09-06)
 
-All 46 automated tests passed. Live CT 270 / Qwen checks returned successful JSON
+All 46 automated tests passed. Live harness host / Qwen checks returned successful JSON
 and SSE answers: recovery comparison used search + two reads in 10.2 seconds;
 help desk triage used search + one read in 6.5 seconds. Both existing profiles also
 completed streaming smoke tests. These are individual observations, not latency

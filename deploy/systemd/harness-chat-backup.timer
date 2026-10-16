@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly harness chat history backup (Central time)
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 America/Chicago
+Persistent=true
+RandomizedDelaySec=0
+Unit=harness-chat-backup.service
+
+[Install]
+WantedBy=timers.target

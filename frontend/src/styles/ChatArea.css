@@ -1,0 +1,50 @@
+.chat-area { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg-primary); }
+
+.chat-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 24px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
+.chat-header-title { margin: 0; font-size: 15px; font-weight: 500; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-controls { display: flex; align-items: flex-end; gap: 12px; flex-shrink: 0; }
+.chat-controls label { display: flex; flex-direction: column; gap: 3px; font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); }
+.chat-controls select { width: 190px; font-size: 13px; letter-spacing: normal; text-transform: none; padding: 6px 28px 6px 10px; text-overflow: ellipsis; }
+.icon-btn { display: grid; place-items: center; width: 34px; height: 34px; border-radius: var(--radius-md); color: var(--text-secondary); }
+.icon-btn:hover:not(:disabled) { background: var(--bg-tertiary); color: var(--danger); }
+
+.messages-container { flex: 1; min-height: 0; overflow-y: auto; padding: 32px 0 16px; }
+.messages-list { max-width: 840px; margin: 0 auto; padding: 0 24px; display: flex; flex-direction: column; gap: 24px; }
+
+.empty-state { max-width: 560px; margin: clamp(16px, 8vh, 90px) auto 0; text-align: center; }
+.empty-state h1 { font-size: clamp(26px, 3vw, 36px); font-weight: 450; letter-spacing: -.025em; margin: 14px 0; }
+.empty-state p { color: var(--text-secondary); font-size: 15px; margin: 0 auto; max-width: 440px; }
+.empty-state .empty-note { font-size: 12px; margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--border-color); }
+
+.input-container { flex-shrink: 0; padding: 8px 24px 24px; }
+.chat-error, .save-status { max-width: 800px; margin: 0 auto 10px; padding: 8px 14px; border-radius: var(--radius-md); font-size: 13px; }
+.chat-error { background: #ff6b6b1f; border: 1px solid #ff6b6b59; }
+.save-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--accent-glow); border: 1px solid var(--border-glass); color: var(--text-primary); }
+.save-status button { color: var(--accent-color); font-weight: 600; padding: 2px 8px; border-radius: var(--radius-sm); }
+.save-status button:hover:not(:disabled) { background: var(--bg-tertiary); }
+
+@media (max-width: 900px) { .chat-controls select { width: 150px; } }
+@media (max-width: 700px) {
+  .chat-header { padding: 8px 12px; }
+  .chat-header-title { display: none; }
+  .chat-controls { flex: 1; }
+  .chat-controls label { flex: 1; min-width: 0; }
+  .chat-controls select { width: 100%; }
+  .messages-container { padding-top: 16px; }
+  .messages-list { padding: 0 12px; gap: 16px; }
+  .input-container { padding: 6px 12px max(12px, env(safe-area-inset-bottom)); }
+}
+
+.chat-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; padding: 8px 24px; border-bottom: 1px solid var(--border-color); background: var(--bg-secondary); }
+.options-label { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); margin-right: 8px; }
+.tool-toggles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tool-chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: var(--radius-full); border: 1px solid var(--border-glass); color: var(--text-secondary); font-size: 12px; }
+.tool-chip:hover:not(:disabled) { background: var(--bg-tertiary); color: var(--text-primary); }
+.tool-dot { width: 7px; height: 7px; border-radius: 50%; border: 1px solid currentColor; }
+.tool-chip.on { background: var(--accent-glow); border-color: var(--accent-color); color: var(--accent-color); }
+.tool-chip.on .tool-dot { background: currentColor; }
+.workflow-desc { margin: 0; flex: 1; min-width: 240px; font-size: 12px; color: var(--text-secondary); }
+@media (max-width: 700px) {
+  .chat-options { padding: 6px 12px; }
+  .workflow-desc { display: none; }
+}
