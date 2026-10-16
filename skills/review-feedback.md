@@ -1,0 +1,2 @@
+# Review without rewriting
+When explicitly asked for feedback or review only, identify the most useful grammar, clarity, structure, and academic-tone issues. Keep suggestions concise and preserve already-clear sentences. Separate optional additions from necessary corrections. Do not rewrite the entire draft. Ask a focused question only about a material unresolved meaning; never invent a claim or source. Use the format requested by the user, otherwise a short list of specific corrections. For an explicit APA review, use apa-review instead.

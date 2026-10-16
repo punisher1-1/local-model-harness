@@ -26,8 +26,8 @@ DEMO_COLLECTION = "demo_notes"
 class Grant(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     profiles: list[str] = Field(default_factory=list)
-    tools: list[Literal["search_notes", "read_note"]] = Field(default_factory=list)
-    collections: list[Literal["demo_notes"]] = Field(default_factory=list)
+    tools: list[Literal["search_notes", "read_note", "vault_search", "vault_read_note", "vault_list_notes", "vault_create_note", "vault_append", "python_run", "web_search", "web_read"]] = Field(default_factory=list)
+    collections: list[Literal["demo_notes", "local_ai_vault", "code_sandbox", "web"]] = Field(default_factory=list)
     client_tools: bool = False
     backend_metrics: bool = False
     memory_scopes: list[str] = Field(default_factory=lambda: ["legacy"])
@@ -148,7 +148,7 @@ class IdentityProvider:
             if self.config.mode == "service_key":
                 if not secrets.compare_digest(token.encode(), self.service_key.encode()):
                     raise ValueError("Invalid service key")
-                return Principal("service_key", "lab-service", self.profile_names, DEMO_TOOLS, frozenset({DEMO_COLLECTION}), client_tools=True, backend_metrics=True)
+                return Principal("service_key", "lab-service", self.profile_names, DEMO_TOOLS | frozenset({"vault_search", "vault_read_note", "vault_list_notes", "vault_create_note", "vault_append", "python_run", "web_search", "web_read"}), frozenset({DEMO_COLLECTION, "local_ai_vault", "code_sandbox", "web"}), client_tools=True, backend_metrics=True)
             header = jwt.get_unverified_header(token)
             kid = header.get("kid")
             if header.get("alg") != "RS256" or not isinstance(kid, str) or kid not in self.keys or header.get("crit"):

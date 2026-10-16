@@ -6,6 +6,8 @@
 # Pin backend_model if multiple IDs are served. Configure each model's parser/template in vLLM.
 # Restart after editing this file. See TOOLS_AND_MODELS.md and TELEMETRY.md.
 # Memory is opt-in; see MEMORY.md before enabling recall or chat saves.
+# Tool servers are opt-in too: uncomment mcp_servers after setting their URLs in .env
+# (MCP_VAULT.md for vault, sandbox/README.md for code and web). Unset URLs stop startup.
 max_request_bytes: 1048576
 max_concurrent_requests: 4
 request_timeout_seconds: 180
@@ -34,7 +36,7 @@ profiles:
     temperature: null
     top_p: null
     presence_penalty: null
-    max_output_tokens: 2048
+    max_output_tokens: 8192
     context_window: 131072
     context_margin: 256
     token_count_mode: vllm
@@ -55,7 +57,8 @@ profiles:
           min_p: 0.0
           repetition_penalty: 1.0
           chat_template_kwargs:
-            enable_thinking: false
+            enable_thinking: true
+            reasoning_effort: low
             preserve_thinking: false
   local-creative:
     chat_memory: false
@@ -96,7 +99,7 @@ profiles:
           repetition_penalty: 1.0
           chat_template_kwargs:
             enable_thinking: true
-            reasoning_effort: medium
+            reasoning_effort: low
             preserve_thinking: false
   local-research:
     compaction:
@@ -145,9 +148,14 @@ profiles:
           repetition_penalty: 1.0
           chat_template_kwargs:
             enable_thinking: true
-            reasoning_effort: medium
+            reasoning_effort: low
             preserve_thinking: false
   local-tools:
+    # mcp_servers: [vault, code, web]
+    # Web search uses paid credits, so chats start with it off.
+    # mcp_default: [vault, code]
+    # skills: [vault-research]
+    # default_skill: vault-research
     chat_memory: false
     compaction:
       enabled: true
@@ -175,7 +183,7 @@ profiles:
     temperature: null
     top_p: null
     presence_penalty: null
-    max_output_tokens: 4096
+    max_output_tokens: 16384
     context_window: 131072
     context_margin: 256
     token_count_mode: vllm
@@ -192,16 +200,21 @@ profiles:
         presence_penalty: 1.5
         context_window: 131072
         backend_options:
+          thinking_token_budget: 4096
           top_k: 20
           min_p: 0.0
           repetition_penalty: 1.0
           chat_template_kwargs:
-            enable_thinking: false
+            enable_thinking: true
+            reasoning_effort: medium
             preserve_thinking: false
     client_tools: true
-    request_timeout_seconds: 300
+    request_timeout_seconds: 600
 
   local-home:
+    # Vault, Python sandbox and web search are available but off until a chat turns them on.
+    # mcp_servers: [vault, code, web]
+    # mcp_default: []
     chat_memory: false
     compaction:
       enabled: true
@@ -230,7 +243,7 @@ profiles:
     temperature: null
     top_p: null
     presence_penalty: null
-    max_output_tokens: 4096
+    max_output_tokens: 16384
     context_window: 131072
     context_margin: 256
     token_count_mode: vllm
@@ -242,6 +255,9 @@ profiles:
     backend_options: {}
     backend_presets:
       qwen3.8-27b:
+        # Reasoning may use a quarter of each call's output allowance (4,096 of 16,384),
+        # matching local-tools' fixed cap.
+        thinking_budget_ratio: 0.25
         temperature: 0.7
         top_p: 0.8
         presence_penalty: 1.5
@@ -251,12 +267,16 @@ profiles:
           min_p: 0.0
           repetition_penalty: 1.0
           chat_template_kwargs:
-            enable_thinking: false
+            enable_thinking: true
+            reasoning_effort: low
             preserve_thinking: false
     client_tools: true
-    request_timeout_seconds: 300
+    request_timeout_seconds: 600
 
   local-work:
+    # Vault, Python sandbox and web search are available but off until a chat turns them on.
+    # mcp_servers: [vault, code, web]
+    # mcp_default: []
     chat_memory: false
     compaction:
       enabled: true
@@ -285,7 +305,7 @@ profiles:
     temperature: null
     top_p: null
     presence_penalty: null
-    max_output_tokens: 4096
+    max_output_tokens: 16384
     context_window: 131072
     context_margin: 256
     token_count_mode: vllm
@@ -297,19 +317,23 @@ profiles:
     backend_options: {}
     backend_presets:
       qwen3.8-27b:
-        temperature: 0.7
-        top_p: 0.8
-        presence_penalty: 1.5
-        context_window: 131072
+        # Reasoning may use a quarter of each call's output allowance (4,096 of 16,384),
+        # matching local-tools' fixed cap.
+        thinking_budget_ratio: 0.25
+        temperature: 1.0
+        top_p: 0.95
+        presence_penalty: 0.0
+        context_window: 32768
         backend_options:
           top_k: 20
           min_p: 0.0
           repetition_penalty: 1.0
           chat_template_kwargs:
-            enable_thinking: false
+            enable_thinking: true
+            reasoning_effort: low
             preserve_thinking: false
     client_tools: true
-    request_timeout_seconds: 300
+    request_timeout_seconds: 600
 
 # FUTURE(role-agents): demonstration only; these are NOT active profiles.
 # See ROLE_AGENTS.md. Do not uncomment: these role-specific data tools and

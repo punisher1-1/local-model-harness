@@ -106,6 +106,7 @@ async def summarize_segments(app, profile, payload, principal, policy, state, qu
         "top_p": profile.top_p, "presence_penalty": 0.0,
         **deepcopy(profile.backend_options), "tool_choice": "none"}
     summary_payload = {k: v for k, v in summary_payload.items() if v is not None}
+    summary_payload.pop("thinking_token_budget", None)
     if "chat_template_kwargs" in summary_payload:
         summary_payload["chat_template_kwargs"].update(enable_thinking=False, preserve_thinking=False)
         summary_payload["chat_template_kwargs"].pop("reasoning_effort", None)

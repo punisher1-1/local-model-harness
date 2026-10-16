@@ -1,0 +1,23 @@
+[Unit]
+Description=Harness Python sandbox MCP server (ADR-003)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+User=sandbox
+Group=sandbox
+# Docker group membership is root-equivalent on this host; acceptable only because
+# the VM is dedicated to the sandbox.
+SupplementaryGroups=docker
+WorkingDirectory=/opt/local-ai-harness/sandbox
+EnvironmentFile=/etc/harness-sandbox.env
+ExecStart=/opt/harness-sandbox-venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

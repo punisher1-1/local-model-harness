@@ -12,6 +12,8 @@ class BackendPreset(BaseModel):
     top_p: float | None = Field(default=None, gt=0, le=1)
     presence_penalty: float | None = Field(default=None, ge=-2, le=2)
     context_window: int | None = Field(default=None, gt=0)
+    # Reasoning cap as a fraction of each call's output allowance (vLLM thinking_token_budget).
+    thinking_budget_ratio: float | None = Field(default=None, gt=0, lt=1)
     backend_options: dict = Field(default_factory=dict)
 
 
@@ -73,6 +75,19 @@ async def resolve_profile(app, profile, models=None):
         return type(profile).model_validate(config)
     except ValueError:
         raise HTTPException(503, "Loaded model context is too small for this profile's output and summary budgets") from None
+
+
+def thinking_budget(profile, max_tokens, configured=None):
+    """Reasoning cap for one generation call, always leaving room for the visible answer.
+
+    A ratio scales with the call's real output allowance (a client-lowered max_tokens,
+    or one round of a tool loop); otherwise a fixed budget is clamped below it.
+    """
+    if profile.thinking_budget_ratio is not None:
+        return min(max(1, int(max_tokens * profile.thinking_budget_ratio)), max_tokens - 1)
+    if configured is not None:
+        return min(configured, max_tokens - 1)
+    return None
 
 
 def runtime_headers(profile):

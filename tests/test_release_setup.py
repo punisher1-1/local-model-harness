@@ -22,6 +22,7 @@ def public_source(tmp_path, config_name):
     for name in ("assistant.md.example", "research.md"):
         shutil.copy(ROOT / "prompts" / name, tmp_path / "prompts" / name)
     shutil.copytree(ROOT / "demo_notes", tmp_path / "demo_notes")
+    shutil.copytree(ROOT / "skills", tmp_path / "skills")
     return tmp_path / config_name
 
 

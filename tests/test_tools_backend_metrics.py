@@ -247,3 +247,33 @@ def test_tool_followup_recall_queries_user_and_preserves_result(tmp_path,memory_
     wire=json.loads(calls[-1].content)
     assert 'SYNTHETIC-CODE' in wire['messages'][1]['content']
     assert wire['messages'][-1]==source[-1]
+
+
+@pytest.mark.parametrize("count", [33,128])
+def test_large_client_tool_catalog_preserved_and_counted(tmp_path,count):
+    tools=[{"type":"function","function":{"name":f"tool_{i}","parameters":{"type":"object","properties":{}}}} for i in range(count)]
+    client,calls=setup(tmp_path,{"client_tools":True})
+    with client:
+        response=ask(client,tools=tools)
+        assert response.status_code==200,response.text
+    assert json.loads(calls[-1].content)["tools"]==tools
+    assert json.loads(next(c for c in calls if c.url.path=="/tokenize").content)["tools"]==tools
+
+
+def test_oversized_catalog_error_is_actionable_and_never_forwarded(tmp_path):
+    tools=[{"type":"function","function":{"name":f"tool_{i}"}} for i in range(129)]
+    client,calls=setup(tmp_path,{"client_tools":True})
+    with client:
+        response=ask(client,tools=tools)
+        assert response.status_code==400
+        assert "at most 128" in response.text and "text chat only" not in response.text
+    assert not calls
+
+
+def test_generic_validation_does_not_claim_tools_disabled(tmp_path):
+    client,calls=setup(tmp_path,{"client_tools":True})
+    with client:
+        response=ask(client,unexpected_field=True)
+        assert response.status_code==400 and "unexpected_field" in response.text
+        assert "text chat only" not in response.text
+    assert not calls

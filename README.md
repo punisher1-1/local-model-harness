@@ -23,6 +23,13 @@ Qwen recipe; unknown models inherit backend generation defaults. `local-tools` p
 attached client functions back to BoltAI/Open WebUI for execution.
 See [TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md) and [TELEMETRY.md](TELEMETRY.md).
 
+## Built-in chat client
+
+The Docker image includes a neutral web client at `/chat/`, with profile/workflow
+selection, streaming Markdown, reasoning, token usage, and persistent conversation
+history. Credentials clear on reload; saved chats return after reconnecting. See [frontend/README.md](frontend/README.md)
+for setup, authentication boundaries, and current limitations.
+
 ## Quick start
 
 Requires Python 3.11+ or Docker. Run commands from this directory.
@@ -42,6 +49,8 @@ Requires Python 3.11+ or Docker. Run commands from this directory.
    `system_prompt_file`. Prompts are visible to the model; keep credentials out.
 6. Memory needs no configuration for the default setup. Enable it separately
    using [MEMORY.md](MEMORY.md).
+   Tool servers (vault, Python sandbox, web search) are also off by default; see
+   [MCP_VAULT.md](MCP_VAULT.md) and [sandbox/README.md](sandbox/README.md) to enable them.
 7. Start the service:
 
 ```bash
@@ -185,17 +194,17 @@ These are model-specific starting points, not universal enterprise defaults.
 
 | Setting | local-assistant | local-creative |
 |---|---|---|
-| Thinking | Disabled | Enabled, explicit `medium` |
+| Thinking | Enabled, explicit `low` | Enabled, explicit `low` |
 | Temperature / top-p | 0.7 / 0.80 | 1.0 / 0.95 |
 | Presence penalty | 1.5 | 0.0 |
 | Top-k / min-p / repetition penalty | 20 / 0.0 / 1.0 | 20 / 0.0 / 1.0 |
-| Output budget (thinking + answer) | 2,048 | 8,192 |
+| Output budget (thinking + answer) | 8,192 | 8,192 |
 | Overall request deadline | Global 180 seconds | 600 seconds |
 | Total context budget | 16,384 | 16,384 |
 
 The custom Qwen template remains on vLLM. The harness sends `chat_template_kwargs`
 identically to token counting and generation; it does not render the template itself.
-Explicit `medium` overrides the custom template's `low` default. Creative was reduced from xhigh after a real discussion-post task exhausted its
+The preset explicitly selects `low`. Creative was previously reduced from xhigh to medium after a real discussion-post task exhausted its
 output budget before the final answer (2026-09-06). Medium changes the template
 instruction, not a guaranteed reasoning-token limit. Preserved thinking is
 disabled; incoming historical `reasoning_content`/`reasoning` fields are accepted
@@ -357,6 +366,133 @@ For `application/octet-stream` attachment errors or oversized fetched-page resul
 see [BOLTAI_TROUBLESHOOTING.md](BOLTAI_TROUBLESHOOTING.md). The 2026-09-11 fix enables
 bounded current-tool evidence summaries and full available context on `local-tools`.
 Plain text content arrays are accepted; binary files still need client-side extraction.
+
+### Reasoning output allowance and empty answers (2026-10-09)
+
+Bundled chat profiles reserve 8,192 output tokens by default, shared by thinking
+and the visible answer. `local-tools` now reserves 16,384 as described below. This does not enlarge the model context window. Input history,
+system prompt, tools, output reservation, and safety margin must still fit.
+The assistant and creative Qwen presets retain their 16,384 context ceilings.
+
+An upstream response with reasoning but no final text or tool calls is an error,
+not a successful answer. Nonstream requests return HTTP 502; streams emit an
+`empty_response` error before `[DONE]`. Compaction notices cannot mask it.
+Generation logs include finish reason and boolean text/tool/reasoning presence,
+without generated content. A `length` finish means the output allowance was
+exhausted; `stop` requires investigation of the upstream template/settings.
+No automatic retry occurs, avoiding duplicate tool actions. Clients may still
+show their own generic error instead of the SSE error detail.
+
+The October 9 Onyx incident coincided with thinking-enabled requests consuming
+all 4,096 output tokens. Historical logs did not record text presence, so this
+is a likely explanation rather than proof of the original failure. Increasing
+the allowance helps but cannot guarantee every reasoning task finishes.
+
+
+### Bounded thinking for local-tools (2026-10-09 follow-up)
+
+The Onyx retry confirmed `finish_reason=length`, 8,192 completion tokens,
+reasoning present, and no text/tool calls. Its prompt was only 3,322 tokens;
+compaction did not run. Increasing the shared output allowance alone was
+insufficient for the six-section architecture benchmark.
+
+`local-tools` now reserves 16,384 total output tokens and has a 600-second
+request deadline. Its exact-ID Qwen preset sends `thinking_token_budget: 4096`
+alongside medium thinking. The remainder is available for the visible answer.
+At the live 75,000-token context ceiling and 256-token margin, input budget is
+58,360 tokens. Other profiles keep their prior output settings.
+
+The installed vLLM 0.31.0 supports the separate budget, verified with a small
+live probe. See [vLLM thinking budget documentation](https://docs.vllm.ai/en/stable/features/reasoning_outputs/#thinking-budget-control).
+This is a server-owned sampling option, not a client-controlled parameter or
+chat-template instruction. It is enabled only for the verified Qwen preset,
+so switching models does not silently apply it to an untested backend.
+Values must be nonnegative integers smaller than the output allowance.
+If a profile permits a smaller client output limit, its thinking budget is
+clamped below that limit. Compaction calls remove it and keep thinking off.
+The generation log records the effective budget without logging reasoning.
+
+A hard reasoning cap can affect answer quality. A successful final answer is
+not proof of meeting every benchmark requirement. Keep quality evaluation
+separate from checking that the stream completes. Longer responses also need
+compatible client/proxy timeouts; no automatic retry is performed.
+
+
+Current reasoning preferences: `local-tools` uses medium; local-assistant,
+local-creative, local-research, local-home, and local-work
+use low. Thinking remains enabled. These are exact-ID Qwen settings,
+not universal reasoning parameters for every model. Low is a template instruction,
+not a hard token cap. The separate 4,096-token cap currently applies only to
+local-tools. Other profiles retain their 8,192-token combined output allowance.
+
+
+Validation: the supplied six-section RAG prompt completed through the deployed
+local-tools streaming endpoint in 128.1 seconds, with 1,518 prompt tokens,
+8,310 completion tokens (3,914 reasoning), visible output containing all six
+section headings, no stream errors, and finish_reason stop. This was a fresh
+harness request; Onyx's additional context was not included. Full benchmark
+quality/rubric compliance was not evaluated. Regression suite: 204 passed,
+27 skipped for optional integration requirements.
+
+
+### Ratio-based reasoning cap (2026-10-15)
+
+An exact-ID preset can set `thinking_budget_ratio` instead of a fixed
+`thinking_token_budget`. The cap becomes that fraction of each call's actual output
+allowance, so it shrinks when a client lowers `max_tokens` and is recomputed for every
+round of a harness tool loop. At least one token always remains for the visible answer.
+The ratio must be between 0 and 1, and a profile or preset may not set both a ratio and
+a fixed budget. It is sent as vLLM's `thinking_token_budget`. Like the fixed budget, it is
+only configured on the verified Qwen preset.
+
+`local-home` and `local-work` use a ratio of 0.25 with a 16,384-token output allowance and
+a 600-second deadline: 4,096 reasoning tokens, matching `local-tools`' fixed 4,096 of 16,384.
+A first try at 0.5 of 8,192 cut off a long answer (`finish_reason: length`): the 4,096
+reasoning cap held, but the answer itself needed more than the remaining 4,096 tokens.
+Generation logs record the effective budget for each call. Profiles without a ratio or
+budget are unchanged.
+
+## Repository-managed skills
+
+Writing profiles can compose reusable writing workflows from trusted Markdown
+files. See [SKILLS.md](SKILLS.md) for defaults, explicit `/skill` selection,
+capability boundaries, and deployment. Pasting a draft still returns only the
+corrected draft.
+
+## Hosted vault tools
+
+`local-tools` supports harness-owned read-only Local_AI_Vault MCP when no client
+tools are attached. See [MCP_VAULT.md](MCP_VAULT.md) for policy, UI behavior, limits,
+and the separate client-tool execution mode.
+
+## Python sandbox
+
+`local-tools`, `local-home` and `local-work` can run Python through a sandboxed MCP server
+on the tools VM. Each run is a fresh container with no network, and nothing persists
+between runs. In `/chat/` it is the **Python sandbox** chip. It is on by default for
+local-tools and off for home and work. The design is in
+[docs/ADR-003-code-sandbox.md](docs/ADR-003-code-sandbox.md); setup, escape tests and
+operations are in [sandbox/README.md](sandbox/README.md). It needs `HARNESS_CODE_MCP_URL` and
+`HARNESS_CODE_MCP_TOKEN` in `.env` on any harness whose profiles list `code`.
+
+## Web search
+
+`local-tools`, `local-home` and `local-work` can search the web with Brave and read pages,
+through a second server on the tools VM. In `/chat/` it is the **Web search** chip. It
+starts off in every profile because searches use prepaid credits. The Brave key stays on
+the tools VM. Page fetches refuse private and LAN addresses, including after redirects. Setup and
+guards are in [sandbox/README.md](sandbox/README.md#web-search-server-tools-vm). It needs
+`HARNESS_WEB_MCP_URL` and `HARNESS_WEB_MCP_TOKEN` in `.env`.
+
+## Reasoning during tool use
+
+When harness tools run, each round's reasoning and a one-line summary of every tool call
+(for example `→ vault_search(Proxmox)` then `✓ 3 results`) stream as `reasoning_content`
+while the loop works. `/chat/` shows the newest step in the bubble, with the full trace
+under Reasoning. BoltAI and Open WebUI show it as reasoning too. Call summaries show only
+the target (a query, path, URL or a script's first line), never note bodies, scripts or
+page text. The final answer still arrives whole. Non-stream responses carry the trace in
+`message.reasoning_content`.
 
 ## License
 

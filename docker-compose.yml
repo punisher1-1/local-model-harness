@@ -2,9 +2,12 @@ services:
   local-model-harness:
     build: .
     env_file: .env
+    environment:
+      HARNESS_CHAT_DB: /app/chat-data/conversations.sqlite3
     ports:
       - "8200:8200"
     volumes:
+      - chat-history:/app/chat-data
       - ./profiles.yaml:/app/profiles.yaml:ro
       - ./prompts:/app/prompts:ro
       - ./demo_notes:/app/demo_notes:ro
@@ -20,3 +23,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  chat-history:
