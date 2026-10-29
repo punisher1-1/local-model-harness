@@ -27,6 +27,7 @@ class Session:
     principal: object
     last_seen: float
     expires_at: float
+    user: dict | None = None  # name, email and groups for an OIDC sign-in, shown in the UI
 
 
 class SessionStore:
@@ -53,7 +54,7 @@ class SessionStore:
     def live(self, session, now):
         return now < session.expires_at and now - session.last_seen < self.idle
 
-    def create(self, principal):
+    def create(self, principal, user=None):
         now = time.time()
         self.items = {k: s for k, s in self.items.items() if self.live(s, now)}
         while len(self.items) >= MAX_SESSIONS:
@@ -62,7 +63,7 @@ class SessionStore:
         if principal.expires_at is not None:
             expires = min(expires, principal.expires_at)
         token = secrets.token_urlsafe(32)
-        self.items[self.key(token)] = Session(principal, now, expires)
+        self.items[self.key(token)] = Session(principal, now, expires, user)
         return token
 
     def lookup(self, token):
@@ -85,7 +86,7 @@ class SessionStore:
         p = session.principal
         return {"kind": p.kind, "actor_id": p.actor_id, "expires_at": int(session.expires_at),
                 "idle_expires_at": int(min(session.expires_at, session.last_seen + self.idle)),
-                "idle_timeout_seconds": int(self.idle)}
+                "idle_timeout_seconds": int(self.idle), "user": session.user}
 
     def authenticate(self, request):
         if request.headers.get(CLIENT_HEADER) != CLIENT_VALUE:
@@ -106,6 +107,9 @@ def install_sessions(app):
     async def start(request: Request):
         if request.headers.get(CLIENT_HEADER) != CLIENT_VALUE:
             raise HTTPException(400, "Sessions are only issued to the harness chat client")
+        config = app.state.identity.config
+        if config.mode == "oidc" and not config.allow_key_sign_in:
+            raise HTTPException(403, f"Sign in with {config.provider_name or 'your identity provider'} instead of a key")
         # Only a bearer credential can open a session; an existing cookie cannot extend itself.
         principal = app.state.identity.authenticate(request.headers.get("authorization", ""))
         principal.ensure_current()

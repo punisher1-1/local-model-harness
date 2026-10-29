@@ -1,3 +1,4 @@
+import conversation_store
 from dataclasses import replace
 from uuid import uuid4
 from test_app import setup, HEADERS
@@ -48,7 +49,7 @@ def test_validation_and_limits(tmp_path,monkeypatch):
         assert c.put(path,headers=HEADERS,json=invalid).status_code==400
         invalid=payload();invalid["messages"][0]["reasoning"]="do not persist"
         assert c.put(path,headers=HEADERS,json=invalid).status_code==400
-        assert c.put(path,headers=HEADERS,content=b"x"*2_000_001).status_code==413
+        assert c.put(path,headers=HEADERS,content=b"x"*(conversation_store.MAX_BYTES+1)).status_code==413
         assert c.put(path,headers=HEADERS,json={**payload(),"profile":"not-authorized"}).status_code==403
         assert c.get("/v1/conversations?offset=-1",headers=HEADERS).status_code==400
 

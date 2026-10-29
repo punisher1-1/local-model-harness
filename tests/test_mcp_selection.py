@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 import yaml
 
-from app import Profile, Settings
+from app import Profile
 from test_app import setup, ask, HEADERS
 from test_research import completion, tool
 from vault_mcp import VaultStore
@@ -141,13 +141,9 @@ def test_conversations_keep_skill_and_tool_choices_and_migrate_old_tables(tmp_pa
         assert client.put(path, headers=HEADERS, json={**body, "revision": 1, "mcp_servers": ["x" * 65]}).status_code == 400
 
 
-def test_repository_profiles_leave_tool_servers_opt_in():
-    config = yaml.safe_load(open("profiles.yaml"))
-    profiles = config["profiles"]
-    assert not any(p.get("mcp_servers") for p in profiles.values())
-    # The commented-out lines in profiles.yaml must stay valid once uncommented.
-    profiles["local-tools"].update(mcp_servers=["vault", "code", "web"], mcp_default=["vault", "code"],
-                                   skills=["vault-research"], default_skill="vault-research")
+def test_repository_profiles_enable_vault_by_policy():
+    profiles = yaml.safe_load(open("profiles.yaml"))["profiles"]
+    assert profiles["local-tools"]["mcp_servers"] == ["vault", "code", "web", "rag"]
+    assert profiles["local-tools"]["mcp_default"] == ["vault", "code", "rag"]
     for name in ["local-home", "local-work"]:
-        profiles[name].update(mcp_servers=["vault", "code", "web"], mcp_default=[])
-    Settings.model_validate(config)
+        assert profiles[name]["mcp_servers"] == ["vault", "code", "web", "rag"] and profiles[name]["mcp_default"] == []

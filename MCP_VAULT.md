@@ -5,7 +5,7 @@ Local_AI_Vault. The older `mcp_vault: true` still works and means the same thing
 See "Choosing MCP servers per chat" below for the general server list.
  `HARNESS_VAULT_MCP_URL` must name the operator-controlled Streamable
 HTTP MCP endpoint. It is never taken from a model, browser, or note. The deployment
-uses the existing the vault host service. The harness adapter registers and executes only
+uses the existing the vault MCP host service. The harness adapter registers and executes only
 `vault_search`, `vault_list_notes`, `vault_read_note`, `vault_create_note` and `vault_append`.
 Every other upstream tool, including any overwrite, move or delete, is unreachable.
 Skills do not grant permissions.
@@ -28,10 +28,12 @@ are not stored as chat messages or automatically promoted to saved memories.
 
 - Six tool calls per request, bounded by the profile's total output/context/deadline
   and concurrency limits. Exact token counting includes schemas and returned evidence.
-- Each MCP invocation has a 20-second timeout; returned text is checked against a
-  64 KiB limit after SDK decoding. This is not a streaming wire-size limit.
+- Each MCP invocation has a 20-second timeout; returned text is checked against a size
+  limit after SDK decoding: 64 KiB, or six bytes per allowed note character if larger
+  (about 300 KB at the default), so a long note is truncated rather than refused. This is
+  not a streaming wire-size limit.
 - Search returns at most ten hits. Reads require a nonhidden relative Markdown path
-  returned by search or listing in the same request. Each note is limited to 16,000 characters,
+  returned by search or listing in the same request. Each note is limited to 48,000 characters by default (`HARNESS_VAULT_READ_CHARS`, 4,000–120,000),
   with truncation disclosed. Absolute paths, traversal, hidden files, and non-Markdown
   files are refused. The upstream server also resolves vault boundaries.
 - Notes are untrusted evidence, not instructions. Cite returned note paths, distinguish
@@ -42,17 +44,17 @@ are not stored as chat messages or automatically promoted to saved memories.
 - Logs contain tool names/statuses, not note text or model arguments. MCP failure is
   supplied as an explicit error to the model, not silently treated as an empty search.
 
-## Harness host deployment
+## The harness host deployment
 
-`HARNESS_VAULT_MCP_URL=http://vault-mcp.example.test:8201/mcp` is provided through the private
-Compose override. The user explicitly approved the vault host's persistent UFW rule allowing
-TCP 8201 only from the harness host (`harness.example.test`). The direct LAN route uses plain HTTP and
-source-IP firewall access, not application authentication or TLS. the harness host therefore
+`HARNESS_VAULT_MCP_URL=http://<vault MCP host>:8201/mcp` is provided through the private
+Compose override. The user explicitly approved the vault MCP host's persistent UFW rule allowing
+TCP 8201 only from the harness host. The direct LAN route uses plain HTTP and
+source-IP firewall access, not application authentication or TLS. The harness host therefore
 has network reachability to all upstream capabilities; the read-only boundary here
 is enforced in the harness, not by a reduced-privilege upstream credential.
 
-To remove that network access on the vault host:
-`ufw delete allow from harness.example.test to any port 8201 proto tcp`.
+To remove that network access on the vault MCP host:
+`ufw delete allow from <harness host> to any port 8201 proto tcp`.
 To disable only harness MCP, remove `vault` from the profile's `mcp_servers` (or `mcp_vault`) and restart the harness.
 The dedicated skill can remain or be removed independently. Changes to MCP server
 source, vault files, or other clients were not required.
@@ -75,18 +77,19 @@ folder listing and the research skill provide the context for that selection.
 
 ## Verified deployment: 2026-10-14
 
-Deployed implementation commit `2f89553` to the harness host. A folder-scoped request
-returned HTTP 200, listed the folder, read the prompt note it contained, and
-reported all of its questions.
+Deployed implementation commit `2f89553` to the harness host. The exact Unit 5 request
+returned HTTP 200, listed `IN254/Unit 5`, read
+`IN254/Unit 5/Unit 5 Discussion Post Prompt.md`, and reported all five questions.
 Activity: `vault_list_notes → vault_read_note`. Readiness and profile catalog
 returned HTTP 200; the catalog exposes all three read-only tools for local-tools.
 Tests: 228 passed, 27 skipped. Skipped tests are not deployment validation.
 
-Before deployment, run the chat-history backup service, archive the source tree, and
-tag the current image as a rollback point.
+Before deployment, ran the chat-history backup service and saved:
+- Files: `/root/harness-before-vault-discovery-20261014.tar.gz`
+- Image: `local-ai-harness-local-model-harness:before-vault-discovery-20261014`
 
-Rollback: restore that archive into the project directory, retag the saved image as
-`:latest`, then run
+Rollback from the harness host: restore that archive into `/root/local-ai-harness`, retag
+the saved image as `local-ai-harness-local-model-harness:latest`, then run
 `docker compose up -d --no-build --force-recreate local-model-harness` in that
 directory. This restores the previous two-tool behavior without changing the
 Compose override, profiles, or chat-history volume. Never use `down -v`.
@@ -131,7 +134,7 @@ candidates include the planned code-execution sandbox and read-only Syncthing st
 
 Local_AI_Vault is a scratch vault kept only for local models. The Claude vault and the personal
 vault are separate and never reachable from the harness. Syncthing keeps it in sync between the
-Mac and the vault host, and it is covered by the user's backup schedule. Models may now write to it:
+Mac and the vault MCP host, and it is covered by the user's backup schedule. Models may now write to it:
 
 - `vault_create_note(path, content)`: a new note only. The upstream server refuses existing paths,
   reported to the model as `note_already_exists` with a hint to rename or append.
@@ -151,7 +154,7 @@ Mac and the vault host, and it is covered by the user's backup schedule. Models 
 - Identity grants: service-key mode includes both write tools. JWT roles need
   `vault_create_note` and/or `vault_append` plus collection `local_ai_vault`.
 
-the vault host registers these tools only when its server runs with `OBSIDIAN_VAULT_WRITABLE=true`.
+The vault MCP host registers these tools only when its server runs with `OBSIDIAN_VAULT_WRITABLE=true`.
 To check the live tool list from the harness host:
 
 ```bash
@@ -164,4 +167,4 @@ asyncio.run(m())"
 ```
 
 If `vault_create_note` or `vault_append` is missing, write calls fail with `vault_write_failed`
-until the vault host is switched to writable. Reads keep working either way.
+until the vault MCP host is switched to writable. Reads keep working either way.

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """Escape and correctness tests for the sandbox, run on the sandbox host against real Docker.
 
-    sudo -u sandbox /opt/harness-sandbox-venv/bin/python selftest.py
+    sudo -u sandbox /opt/harness-sandbox-venv/bin/python selftest.py <harness host address>
 
 Each case runs through the same run_python() the server uses. Exit code 0 only if
 every case passes. Run it after any change to the image, Docker or the host.
 """
 import asyncio
-import os
 import sys
 
 from server import run_python, OUTPUT_CAP
 
-# Address of the harness host; it must be unreachable from inside the sandbox.
-PROBE_LAN = os.getenv("SANDBOX_PROBE_HOST", "192.0.2.10")
+if len(sys.argv) != 2:
+    sys.exit("usage: selftest.py <harness host address>  (the harness itself must be unreachable from inside)")
+PROBE_LAN = sys.argv[1]
 
 
 CASES = [

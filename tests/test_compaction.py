@@ -39,7 +39,8 @@ def fake_backend(seen, summary_finish="stop", summary_text=None, fail=False):
                 return httpx.Response(200,json={"choices":[{"message":{"role":"assistant","content":text},"finish_reason":summary_finish}],"usage":{"completion_tokens":50}})
             if payload["stream"]:
                 events=[{"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"actual-model","choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":None}]},
-                        {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"actual-model","choices":[{"index":0,"delta":{"content":"."},"finish_reason":"stop"}]}]
+                        {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"actual-model","choices":[{"index":0,"delta":{"content":"."},"finish_reason":"stop"}]},
+                        {"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"actual-model","choices":[],"usage":{"prompt_tokens":20,"completion_tokens":2,"total_tokens":22}}]
                 return httpx.Response(200,text="".join("data: "+json.dumps(e)+"\n\n" for e in events)+"data: [DONE]\n\n",headers={"content-type":"text/event-stream"})
             return httpx.Response(200,json={"choices":[{"message":{"role":"assistant","content":"Answer."},"finish_reason":"stop"}],"usage":{"completion_tokens":10}})
     return handler

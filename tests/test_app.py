@@ -62,7 +62,7 @@ def test_server_policy_and_history(tmp_path):
         payload = json.loads(calls[-1].content)
         assert payload["temperature"] == 0.2
         assert payload["max_tokens"] == 2048
-        assert payload["messages"][0]["content"] == "Server policy\n\nRules:\n- Do not fabricate"
+        assert payload["messages"][0]["content"].split("\n\nToday's date is ")[0] == "Server policy\n\nRules:\n- Do not fabricate"
         assert len(payload["messages"]) == 4
         assert result.json()["model"] == "local"
         assert len(result.headers["X-Harness-Profile-SHA256"]) == 64
@@ -254,3 +254,23 @@ def test_invalid_sampling_profile_rejected(tmp_path, profile):
     with pytest.raises(ValueError):
         with client:
             pass
+
+
+def test_system_prompt_ends_with_todays_date(tmp_path, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    monkeypatch.setenv("HARNESS_TIMEZONE", "America/Chicago")
+    client, calls = setup(tmp_path)
+    with client:
+        assert ask(client).status_code == 200
+    system = json.loads(calls[-1].content)["messages"][0]["content"]
+    today = datetime.now(ZoneInfo("America/Chicago"))
+    assert system.endswith(f"\n\nToday's date is {today:%A, %Y-%m-%d} (America/Chicago).")
+
+
+def test_unknown_time_zone_is_rejected():
+    import pytest
+    from app import clock_zone
+    assert clock_zone(None).key == "UTC"
+    with pytest.raises(ValueError, match="HARNESS_TIMEZONE"):
+        clock_zone("Mars/Olympus")

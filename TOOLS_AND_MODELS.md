@@ -2,12 +2,12 @@
 
 Implemented 2026-09-10. Stable public profile IDs now follow the single model loaded
 in vLLM. A fourth profile, `local-tools`, transports OpenAI function calls for a client
-such as BoltAI or Open WebUI. It does not execute tools inside the harness container.
+such as BoltAI or Open WebUI. It does not execute tools inside the harness host.
 
 ## Start with BoltAI
 
 1. Keep the existing custom OpenAI-compatible provider pointing to
-   `http://localhost:8200/v1` with the harness key.
+   `http://<harness host>:8200/v1` with the harness key.
 2. Refresh its models and select **local-tools**. If your BoltAI version requires
    manual model entry, use exactly `local-tools` and enable its tool/function capability.
 3. Attach the search tool you already configured in BoltAI to that conversation.
@@ -96,8 +96,7 @@ the UI configures them, not automatically in ParadeDB.
 
 ## Switching vLLM models
 
-All profiles in `profiles.yaml` set `backend_model: auto`; the minimal
-`profiles.portable.yaml` config uses a pinned ID for other backends. Every request queries `/v1/models`,
+All bundled profiles set `backend_model: auto`. Every request queries `/v1/models`,
 requires exactly one advertised ID, reads its `max_model_len`, and resolves one
 request-local profile used for tokenization, summaries and generation. No restart of
 the harness is needed just because the served model changes. UI model IDs stay stable.
@@ -148,8 +147,8 @@ all configured recipes; logs identify the actual backend and effective sampling.
 
 Set `client_tools: false` or remove `local-tools` to disable the bridge. Pin backend IDs
 and verified windows to disable automatic model following. Restart after config edits.
-For a full runtime rollback, restore a reviewed source version and rebuild while
-preserving deployment-only configuration separately. No database rollback is needed.
+Restore `/root/harness-before-ui-tools-20260910.tar` on the harness host for a full runtime rollback; no database schema,
+password, vLLM launch flag, or frontend configuration changed in this release.
 
 ## Validation record
 
@@ -159,11 +158,11 @@ tool history validation, streaming calls, disabled profiles, JWT grants, memory 
 on tool follow-ups, compaction with current/older tool exchanges, usage preservation,
 and protected metrics access. Model swaps were simulated; the lab GPU was not switched.
 
-Live harness container checks passed for all four profiles, default streaming usage, an actual
+Live checks on the harness host passed for all four profiles, default streaming usage, an actual
 model-generated `search_web` call followed by a synthetic result and final answer,
 reasoning metadata handling, rejection on non-tool profiles, and authenticated metrics.
 No search provider was called during the fixture test. Actual BoltAI tool selection
-and provider execution remain a UI acceptance check for the project owner.
+and provider execution remain a UI acceptance check for the owner.
 
 A live long-history `local-tools` follow-up compacted an older filler-heavy turn in
 one call, retained the current tool-result marker, and correctly distinguished
@@ -184,9 +183,9 @@ captured or changed.
 
 ## Thinking defaults, 2026-10-09
 
-All bundled Qwen chat profiles now enable
+All bundled Qwen chat profiles, including optional deployment-only packs, now enable
 medium thinking in their exact-ID `qwen3.8-27b` preset. Previously assistant/tools/
-home/work profiles disabled it; creative/research already used medium.
+home/work and the optional pack's profiles disabled it; creative/research already used medium.
 Unknown model IDs still inherit backend defaults rather than receiving Qwen-specific
 template arguments. Compaction summary requests deliberately disable thinking;
 `preserve_thinking: false` still prevents historical reasoning from being carried

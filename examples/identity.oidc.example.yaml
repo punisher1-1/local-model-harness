@@ -1,0 +1,53 @@
+# OIDC sign-in with Pocket ID (docs/ADR-004-oidc-sign-in.md, IDENTITY.md "OIDC mode").
+# Copy to identity-config/identity.yaml on the harness host and set
+# HARNESS_IDENTITY_CONFIG=/app/identity-config/identity.yaml in .env.
+mode: oidc
+provider_name: Pocket ID
+issuer: https://id.example.com            # Pocket ID's APP_URL, exactly
+client_id: replace-with-pocket-id-client-id
+# The client secret is read from HARNESS_OIDC_CLIENT_SECRET in .env (never put it here).
+# Leave that variable empty for a Pocket ID "public client" (PKCE only).
+redirect_uri: http://<harness host>:8200/v1/auth/callback   # must match the callback URL in Pocket ID
+roles_claim: groups                        # Pocket ID puts group names in "groups"
+scopes: [openid, profile, email, groups]
+
+# Pocket ID group Name -> what members may use. Grants from several groups are combined.
+# Use the group's Name, not its Friendly name: Pocket ID puts the Name in the token and turns
+# hyphens into underscores (Friendly name "harness-admin" becomes Name "harness_admin").
+role_grants:
+  harness_admin:
+    # local-bench is the fixed test profile; keep it admin-only (not in service_key below).
+    profiles: [local-assistant, local-creative, local-research, local-tools, local-home, local-work, local-bench, it-troubleshoot]
+    tools: [vault_search, vault_read_note, vault_list_notes, vault_create_note, vault_append,
+            python_run, web_search, web_read, rag_search]
+    collections: [local_ai_vault, code_sandbox, web, knowledge_base]
+    client_tools: true
+    backend_metrics: true
+    # Every memory scope your profiles use: legacy (existing memories), plus home and work
+    # for local-home/local-work. Each must be configured in the memory config.
+    memory_scopes: [legacy, home, work]
+    memory_permissions: [memory.read, memory.write, memory.delete]
+  harness_family:
+    # Profiles of their own, defined in profiles.local.yaml.
+    profiles: [family-assistant, family-writing]
+    # A profile that sets client_tools: true is usable only by accounts whose grant also
+    # allows client tools.
+    client_tools: true
+    # Each profile saves to its own scope (memory_recall.scope in its profile). List every
+    # one; without this list they would get the default, "legacy", which is yours.
+    memory_scopes: [family-personal, family-writing]
+    memory_permissions: [memory.read, memory.write, memory.delete]
+
+# Apps that cannot sign in (Open WebUI, BoltAI, n8n) keep using HARNESS_API_KEY with this
+# grant. Start broad, then narrow it to what those apps use. Remove the block to disable the key.
+service_key:
+  profiles: [local-assistant, local-creative, local-research, local-tools, local-home, local-work]
+  tools: [vault_search, vault_read_note, vault_list_notes, vault_create_note, vault_append,
+          python_run, web_search, web_read, rag_search]
+  collections: [local_ai_vault, code_sandbox, web, knowledge_base]
+  client_tools: true
+  backend_metrics: true
+  memory_permissions: [memory.read, memory.write, memory.delete]
+
+# Lets the browser sign-in page also accept the service key, as a fallback if Pocket ID is down.
+allow_key_sign_in: true

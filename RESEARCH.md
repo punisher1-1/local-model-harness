@@ -121,7 +121,7 @@ Reference: [vLLM tool calling](https://docs.vllm.ai/en/latest/features/tool_call
 
 ## Lab verification (2026-09-06)
 
-All 46 automated tests passed. Live harness host / Qwen checks returned successful JSON
+All 46 automated tests passed. Live harness-host / Qwen checks returned successful JSON
 and SSE answers: recovery comparison used search + two reads in 10.2 seconds;
 help desk triage used search + one read in 6.5 seconds. Both existing profiles also
 completed streaming smoke tests. These are individual observations, not latency
@@ -211,8 +211,7 @@ mitigation; they do not establish a zero future failure rate.
 
 ## Saved memory context (2026-09-08)
 
-When memory recall is explicitly enabled, `local-research` receives bounded
-saved-memory context before its existing tool
+`local-research` now receives bounded saved-memory context before its existing tool
 loop. This grants no new tool. The two demo-note tools and their permissions remain
 unchanged. Saved memories can describe preferences or user assertions, but are not
 demo-corpus evidence; the system policy prohibits citing them as demo notes. All

@@ -1,17 +1,30 @@
 .chat-input-form {
   width: 100%;
-  max-width: 800px;
+  max-width: calc(var(--chat-width) - 48px);
   margin: 0 auto;
   display: flex;
+  flex-direction: column;
   flex-shrink: 0;
-  align-items: flex-end;
-  gap: 12px;
+  gap: 10px;
   padding: 14px 16px;
   border-radius: 16px;
   box-shadow: 0 8px 24px #0002;
 }
 .chat-input-form.glass-panel { background: var(--bg-input); border-color: var(--border-input); }
 .chat-input-form:focus-within { border-color: #91b7ef; }
+.chat-input-form.dragging { border-color: var(--accent-color); border-style: dashed; }
+.chat-input-row { display: flex; align-items: flex-end; gap: 12px; }
+.attach-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-tertiary); }
+.attachment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.attachment-chip { position: relative; display: flex; flex-direction: column; gap: 2px; max-width: 100%; min-width: 180px; padding: 8px 30px 8px 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-tertiary); font-size: 12px; }
+.attachment-chip.too-long, .attachment-chip.error { border-color: #ff6b6b59; }
+.attachment-name { font-size: 13px; font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px; }
+.attachment-info { display: flex; align-items: center; color: var(--text-secondary); }
+.attachment-error { color: var(--danger); }
+.attachment-warn { color: var(--text-secondary); }
+.link-btn { margin-left: 6px; padding: 0; border: 0; background: none; color: var(--accent-hover); font-size: 12px; text-decoration: underline; cursor: pointer; }
+.attachment-remove { position: absolute; top: 4px; right: 6px; width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--text-secondary); font-size: 16px; line-height: 1; }
+.attachment-remove:hover { color: var(--text-primary); }
 .text-input { flex: 1; min-width: 0; background: transparent; border: none; font-size: 15px; resize: none; min-height: 44px; max-height: 180px; padding: 10px 0; line-height: 1.6; }
 .text-input:focus-visible { outline: none; }
 .text-input::placeholder { color: var(--text-secondary); }

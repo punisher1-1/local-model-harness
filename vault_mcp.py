@@ -18,6 +18,24 @@ READ_NAMES = frozenset({"vault_search", "vault_read_note", "vault_list_notes"})
 WRITE_NAMES = frozenset({"vault_create_note", "vault_append"})
 NAMES = READ_NAMES | WRITE_NAMES
 MAX_WRITE_CHARS = 20000
+# How much of one note a read returns. Every round of a tool loop resends earlier results, so
+# this trades completeness against context: 48,000 characters is roughly 12,000 tokens.
+DEFAULT_READ_CHARS = 48000
+READ_CHARS_RANGE = (4000, 120000)
+
+
+def read_chars_from_env():
+    raw = os.getenv("HARNESS_VAULT_READ_CHARS", "").strip()
+    if not raw:
+        return DEFAULT_READ_CHARS
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError("HARNESS_VAULT_READ_CHARS must be a whole number of characters") from None
+    low, high = READ_CHARS_RANGE
+    if not low <= value <= high:
+        raise ValueError(f"HARNESS_VAULT_READ_CHARS must be between {low:,} and {high:,}")
+    return value
 
 class Search(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -47,9 +65,9 @@ MODELS = {"vault_search": Search, "vault_read_note": Read, "vault_list_notes": L
 
 SCHEMAS = [{"type":"function", "function":{"name":name,"description":description,"parameters":model.model_json_schema()}} for name,description,model in [
     ("vault_search","Search an exact phrase in note titles/content, NOT folder paths. Prefer a short title phrase; do not concatenate folder names with the title. Read relevant hits.",Search),
-    ("vault_list_notes","List Markdown paths beneath a known folder, e.g. CS101/Unit 5. Use this first when the user specifies a folder. Then read the relevant returned path.",Listing),
+    ("vault_list_notes","List Markdown paths beneath a known folder, e.g. IN254/Unit 5. Use this first when the user specifies a folder. Then read the relevant returned path.",Listing),
     ("vault_read_note","Read a Markdown note returned by search or folder listing in this request. Read evidence before making claims.",Read),
-    ("vault_create_note","Create a NEW Markdown note at a vault-relative path ending in .md, e.g. Drafts/CS101 Unit 6 draft.md. Fails if the note already exists; then choose another name or append.",Create),
+    ("vault_create_note","Create a NEW Markdown note at a vault-relative path ending in .md, e.g. Drafts/IT301 Unit 6 draft.md. Fails if the note already exists; then choose another name or append.",Create),
     ("vault_append","Append text to the end of an EXISTING note, e.g. to add to a draft or running notes. Cannot replace or delete content.",Append)]]
 
 RULES = """The harness can search, read, create and append notes in Local_AI_Vault, a
@@ -81,6 +99,7 @@ class VaultStore:
         url = urlsplit(self.url)
         if url.scheme not in {"http","https"} or not url.hostname or url.username or url.password or url.query or url.fragment:
             raise ValueError("Configure a trusted HARNESS_VAULT_MCP_URL")
+        self.read_chars = read_chars_from_env()
         self.sha256 = hashlib.sha256((self.url+json.dumps(SCHEMAS,sort_keys=True)).encode()).hexdigest()
         self.seen = set()
         self.read_paths = set()
@@ -88,7 +107,9 @@ class VaultStore:
         self.writes = []
 
     async def call(self,name,args):
-        return await call_tool(self.url, name, args, 20, "vault")
+        # Allow a full long note through the transport (JSON escaping and non-ASCII text can
+        # take several bytes per character); the read cap below decides what the model sees.
+        return await call_tool(self.url, name, args, 20, "vault", max_bytes=max(65536, self.read_chars * 6 + 16384))
 
     async def execute(self,name,args):
         if name not in NAMES:
@@ -126,7 +147,7 @@ class VaultStore:
             if not isinstance(content,str):
                 return {"error":"invalid_vault_result"}
             self.read_paths.add(parsed["path"])
-            return {"source":"Local_AI_Vault","path":parsed['path'],"content":content[:16000],"truncated":bool(data.get('truncated')) or len(content)>16000}
+            return {"source":"Local_AI_Vault","path":parsed['path'],"content":content[:self.read_chars],"truncated":bool(data.get('truncated')) or len(content)>self.read_chars}
         except asyncio.CancelledError:
             raise
         except Exception as exc:

@@ -217,3 +217,39 @@ def test_blank_completion_has_safe_diagnostics(tmp_path, caplog):
     assert failures[0]["content_chars"] == 2
     assert failures[0]["round"] == 1
     assert "private-backend-text" not in caplog.text + response.text
+
+
+FOOTER = ("\n\n---\n*MCP activity (Knowledge base, Local_AI_Vault, Web search): rag_search → rag_search.*"
+          "\n*Run: model qwen3.8-27b · profile it-troubleshoot · harness 83528ea.*")
+
+
+def test_strip_footer_removes_only_a_trailing_footer():
+    from research import strip_footer
+    assert strip_footer("Answer." + FOOTER) == "Answer."
+    assert strip_footer("Answer." + FOOTER + FOOTER) == "Answer."
+    assert strip_footer("Answer.\n*Run: model x · profile y · harness z.*") == "Answer."
+    assert strip_footer("Answer.\n\n---\n*Context compacted: older turns were summarized.*") == "Answer."
+    numbers = "\n\n---\n*Demo research activity: No tools called.*\n*Unverified numbers (not printed by python_run): 5.*"
+    assert strip_footer("Answer." + numbers) == "Answer."
+    # A footer quoted mid-answer, and ordinary rules and italics, stay.
+    quoted = "The footer reads:\n\n---\n*MCP activity (x): y.*\n\nThat line lists the tools."
+    assert strip_footer(quoted) == quoted
+    assert strip_footer("Part one.\n\n---\n*Note: italic.*") == "Part one.\n\n---\n*Note: italic.*"
+    assert strip_footer(None) is None
+
+
+def test_replayed_and_copied_footers_are_dropped(tmp_path):
+    def backend(request):
+        if request.url.path.endswith("chat/completions"):
+            return completion({"role": "assistant", "content": "RPO is 24 hours." + FOOTER})
+    client, calls = research_setup(tmp_path, backend)
+    with client:
+        result = ask(client, messages=[{"role": "user", "content": "Hi"},
+                                       {"role": "assistant", "content": "Earlier." + FOOTER},
+                                       {"role": "user", "content": "And now?"}])
+        assert result.status_code == 200
+        content = result.json()["choices"][0]["message"]["content"]
+    assert content.startswith("RPO is 24 hours.\n\n---\n*Demo research activity: No tools called.*")
+    assert content.count("---") == 1 and "it-troubleshoot" not in content
+    sent = json.loads(calls[-1].content)["messages"]
+    assert [m["content"] for m in sent if m["role"] == "assistant"] == ["Earlier."]

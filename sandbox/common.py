@@ -1,4 +1,4 @@
-"""Pieces shared by the tools-VM MCP servers (Python sandbox and web tools)."""
+"""Pieces shared by the Hermes MCP servers (Python sandbox and web tools)."""
 import hmac
 
 

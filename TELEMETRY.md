@@ -69,7 +69,7 @@ On the lab server we verified:
 Counters reset on server restart. Histograms describe cache blocks and reuse patterns,
 not tokens attributable to one chat. Preserve labels when graphing multiple workers.
 
-Inside the harness container, from your project directory, display a compact snapshot without putting
+Inside the harness host, from `/root/local-ai-harness`, display a compact snapshot without putting
 credentials on the command line:
 
 ```bash
@@ -78,7 +78,7 @@ docker compose exec -T local-model-harness python scripts/backend_stats.py
 
 Add `--raw` for all exposed vLLM metrics. The helper reads the existing container key.
 It is an on-demand snapshot, not a scheduled job. For trends, point Prometheus at
-`http://localhost:8200/v1/backend/metrics` using a securely configured bearer token
+`http://<harness host>:8200/v1/backend/metrics` using a securely configured bearer token
 and graph the counters/gauges/histograms in Grafana. No collector or dashboard was
 installed by this update.
 
@@ -89,4 +89,4 @@ completion tokens. The summary used 25,241 prompt + 87 completion tokens, yieldi
 `harness_usage.total_tokens_including_compaction: 26269`. This illustrates why final
 reply usage alone undercounts summary work. The backend supplied reasoning-token
 breakdowns on ordinary assistant/creative replies. The snapshot helper and token/cache/
-residency metrics proxy also passed live checks on the harness container.
+residency metrics proxy also passed live checks on the harness host.

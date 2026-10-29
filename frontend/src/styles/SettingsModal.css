@@ -31,3 +31,37 @@
   .settings-list { grid-template-columns: 1fr; gap: 2px; }
   .settings-list dd { margin-bottom: 8px; }
 }
+
+.skills-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.skills-heading h3 { margin: 0; }
+.skill-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.skill-row { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); text-align: left; }
+.skill-row:hover { background: var(--bg-tertiary); }
+.skill-name { font-size: 14px; font-weight: 500; }
+.skill-summary { font-size: 12px; color: var(--text-secondary); }
+.skill-editor { display: flex; flex-direction: column; gap: 14px; }
+.skill-editor h3, .skill-editor .setting-desc { margin: 0; }
+.skill-editor textarea { width: 100%; min-height: 220px; resize: vertical; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-input); font: 13px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: normal; text-transform: none; color: var(--text-primary); }
+.skill-editor-meta, .skill-editor-actions { display: flex; align-items: center; gap: 8px; }
+.skill-editor-actions .spacer { flex: 1; }
+.char-count { margin-left: auto; font-size: 12px; color: var(--text-secondary); }
+.char-count.near { color: var(--danger); }
+.skill-badge { margin-left: 8px; padding: 1px 8px; border-radius: var(--radius-full); border: 1px solid var(--border-glass); background: var(--accent-glow); color: var(--accent-hover); font-size: 11px; font-weight: 500; white-space: nowrap; }
+.skills-shared-heading { margin: 22px 0 8px; }
+.skill-share { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 10px; }
+.skill-share legend { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.skill-share-option { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.skill-share .setting-desc { margin: 2px 0 0; }
+.skill-readonly { max-height: 320px; overflow: auto; margin: 0; padding: 10px 12px; white-space: pre-wrap; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-input); font: 13px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--text-primary); }
+.memory-scope { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.memory-scope select { width: auto; }
+.memory-add { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.memory-add textarea { width: 100%; resize: vertical; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 14px; }
+.memory-add select { width: auto; }
+.memory-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.memory-search input { flex: 1; min-width: 0; }
+.memory-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.memory-row { padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.memory-text { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.memory-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.memory-meta .skill-badge { margin-left: 0; }

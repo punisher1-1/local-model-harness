@@ -1,15 +1,21 @@
 import React, {useEffect, useRef} from 'react';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
+import WorkflowSelect from './WorkflowSelect';
+import {userSkillId} from '../client';
 import '../styles/ChatArea.css';
 
 // Profiles lock after the first message; a new chat is needed to switch.
 // The workflow and tool choices stick to the chat: the workflow is sent as
-// `/skill <id>` on every turn, and tools as the X-Harness-MCP header.
-function ChatArea({session, profile, catalog, selected, onSelectProfile, skill, onSelectSkill, mcp, onToggleMcp, busy, error, onSend, onStop, onDelete, onRetrySave, onError}) {
+// `/skill <id>` on every turn (one of the user's own skills as X-Harness-User-Skill),
+// and tools as the X-Harness-MCP header.
+function ChatArea({session, profile, catalog, selected, onSelectProfile, projects, projectId, onSelectProject, userSkills, docs, skill, onSelectSkill, mcp, onToggleMcp, busy, error, onSend, onStop, onDelete, onRetrySave}) {
   const end = useRef(null);
   const info = id => profile?.skill_info?.find(s => s.id === id);
-  const workflow = info(skill || profile?.default_skill);
+  const own = userSkills.find(s => s.id === userSkillId(skill));
+  // A message's workflow by name: a user skill's name (or "Deleted skill"), else the built-in's title.
+  const workflowLabel = id => !id ? '' : userSkillId(id) ? userSkills.find(s => s.id === userSkillId(id))?.name || 'Deleted skill' : info(id)?.title || id;
+  const workflow = own ? {description: own.summary || own.name} : info(skill || profile?.default_skill);
   const servers = profile?.mcp_servers || [];
   const enabled = servers.filter(s => mcp.includes(s.id));
   useEffect(() => { end.current?.scrollIntoView({block: 'nearest'}); }, [session?.messages]);
@@ -19,16 +25,21 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, skill, 
       <div className="chat-header">
         <h2 className="chat-header-title">{session?.title || 'New Chat'}</h2>
         <div className="chat-controls">
+          {projects.length > 0 && (
+            <label>Project
+              <select value={projectId} disabled={busy} onChange={e => onSelectProject(e.target.value)}>
+                <option value="">No project</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
           <label>Profile
             <select value={selected} disabled={busy || !!session} onChange={e => onSelectProfile(e.target.value)}>
               {catalog.map(p => <option key={p.id} value={p.id}>{p.id}</option>)}
             </select>
           </label>
           <label>Workflow
-            <select value={skill} disabled={busy} onChange={e => onSelectSkill(e.target.value)}>
-              <option value="">Automatic{profile?.default_skill ? ` · ${info(profile.default_skill)?.title || profile.default_skill}` : ''}</option>
-              {profile?.skills.map(s => <option key={s} value={s}>{info(s)?.title || s}</option>)}
-            </select>
+            <WorkflowSelect profile={profile} userSkills={userSkills} value={skill} disabled={busy} onChange={onSelectSkill}/>
           </label>
           {session && (
             <button className="icon-btn" title="Delete chat" aria-label="Delete chat" disabled={busy} onClick={onDelete}>
@@ -55,7 +66,7 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, skill, 
               ))}
             </div>
           )}
-          {workflow?.description && <p className="workflow-desc"><span className="options-label">{skill ? 'Workflow' : 'Default workflow'}</span>{workflow.description}</p>}
+          {workflow?.description && <p className="workflow-desc"><span className="options-label">{own ? 'My skill' : skill ? 'Workflow' : 'Default workflow'}</span>{workflow.description}</p>}
         </div>
       )}
 
@@ -65,14 +76,16 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, skill, 
             <div className="empty-state">
               <div className="eyebrow">Ready when you are</div>
               <h1>What are we working on?</h1>
-              <p>Choose a profile and start a conversation. Workflows come from the harness.</p>
+              <p>{projectId ? `New chat in ${projects.find(p => p.id === projectId)?.name}, using the project's tools and workflow.`
+                : 'Choose a profile and start a conversation. Workflows come from the harness.'}</p>
               <p className="empty-note">
                 {enabled.length ? `Tools on: ${enabled.map(s => s.label).join(', ')}. Tool activity appears with the answer.`
                   : servers.length ? 'Harness tools are off for this chat. Turn them on above.' : 'This profile has no harness tools.'}
               </p>
             </div>
           )}
-          {session?.messages?.map(m => <MessageBubble key={m.id} message={m} onCopyFailed={() => onError('Copy is unavailable here. Select the answer text to copy it.')}/>)}
+          {session?.messages?.map(m => <MessageBubble key={m.id} message={m} skillLabel={workflowLabel(m.skill)} busy={busy}
+            onResend={m.role === 'user' ? q => onSend(q.content, q.attachments || []) : undefined}/>)}
           <div ref={end}/>
         </div>
       </div>
@@ -85,7 +98,7 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, skill, 
           </div>
         )}
         {error && <div className="chat-error" role="alert">{error}</div>}
-        <ChatInput onSendMessage={onSend} onStop={onStop} isStreaming={busy}/>
+        <ChatInput onSendMessage={onSend} onStop={onStop} isStreaming={busy} profile={profile?.id} docs={docs}/>
       </div>
     </main>
   );

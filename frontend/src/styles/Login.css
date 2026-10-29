@@ -9,3 +9,8 @@
 .login [role=alert] { margin: 16px 0 0; }
 @media (max-height: 500px) { .login { margin: 16px auto; } }
 .login .login-notice { color: var(--accent-hover); margin: -12px 0 24px; }
+.login .provider-btn { display: block; text-align: center; background: var(--accent-color); color: var(--accent-ink); font-weight: 600; padding: 14px; border-radius: var(--radius-md); text-decoration: none; }
+.login .provider-btn:hover { background: var(--accent-hover); }
+.login .key-sign-in { margin-top: 24px; }
+.login .key-sign-in summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+.login .key-sign-in summary:hover { color: var(--text-primary); }

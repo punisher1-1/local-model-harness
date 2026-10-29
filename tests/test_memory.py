@@ -32,8 +32,8 @@ def test_strict_memory_body(extra):
 
 
 def test_config_requires_separate_role_and_tls(tmp_path):
-    base = {"namespace": "test", "host": "192.0.2.20", "password_file": "secret", "sslrootcert": "ca"}
-    for extra in ({"user": "ragapp"}, {"database": "other_database"}, {"sslmode": "disable"}, {"host": "x password=evil"}):
+    base = {"namespace": "test", "host": "10.0.0.67", "password_file": "secret", "sslrootcert": "ca"}
+    for extra in ({"user": "ragapp"}, {"database": "myragdatabase"}, {"sslmode": "disable"}, {"host": "x password=evil"}):
         with pytest.raises(ValueError):
             MemoryConfig.model_validate({**base, **extra})
     config = MemoryConfig.model_validate(base)

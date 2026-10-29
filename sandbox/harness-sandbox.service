@@ -11,6 +11,10 @@ Group=sandbox
 SupplementaryGroups=docker
 WorkingDirectory=/opt/local-ai-harness/sandbox
 EnvironmentFile=/etc/harness-sandbox.env
+# ProtectHome hides /home, so the docker CLI would warn on every run that it cannot read
+# ~/.docker/config.json. Point it at an empty runtime directory instead.
+RuntimeDirectory=harness-sandbox
+Environment=DOCKER_CONFIG=%t/harness-sandbox
 ExecStart=/opt/harness-sandbox-venv/bin/python server.py
 Restart=on-failure
 RestartSec=5

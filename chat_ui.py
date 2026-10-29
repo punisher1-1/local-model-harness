@@ -16,6 +16,8 @@ HEADERS = {
 def install_chat_ui(app):
     if not (ROOT / 'index.html').is_file():
         return
+    # The bare address (e.g. https://harness.example.com) opens the chat too.
+    @app.get('/', include_in_schema=False)
     @app.get('/chat', include_in_schema=False)
     async def redirect_chat():
         return RedirectResponse('/chat/')

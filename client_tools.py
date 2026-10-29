@@ -69,7 +69,8 @@ def prepare_history(body, profile, principal):
             raise HTTPException(400, "Client tools/tool_choice are disabled for this profile; select local-tools to use UI tools")
     else:
         if not principal.client_tools:
-            raise HTTPException(403, "Client tool transport access denied")
+            raise HTTPException(403, "Your account isn't set up for this model yet. Ask your harness admin to turn on "
+                                     "client tools for your group (client_tools: true in the identity config).")
     definitions = [t.model_dump(exclude_none=True) for t in (body.tools or [])]
     names = [t["function"]["name"] for t in definitions]
     if len(set(names)) != len(names):

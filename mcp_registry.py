@@ -38,17 +38,23 @@ def _vault():
 
 def _code():
     from code_mcp import CodeStore, SCHEMAS, COLLECTION, RULES
-    return MCPServer("code", "Python sandbox", "Run Python 3.12 scripts in an isolated container on the tools VM. No network, fresh state each run.",
+    return MCPServer("code", "Python sandbox", "Run Python 3.12 scripts in an isolated container on the Hermes VM. No network, fresh state each run.",
                      COLLECTION, SCHEMAS, RULES, CodeStore)
 
 
 def _web():
     from web_mcp import WebStore, SCHEMAS, COLLECTION, RULES
-    return MCPServer("web", "Web search", "Search the web with Brave and read public pages, fetched from the tools VM. Uses paid search credits.",
+    return MCPServer("web", "Web search", "Search the web with Brave, get query-relevant page passages and read public pages, fetched from the Hermes VM. Uses paid search credits.",
                      COLLECTION, SCHEMAS, RULES, WebStore)
 
 
-_BUILDERS = {"vault": _vault, "code": _code, "web": _web}
+def _rag():
+    from rag_tool import RagStore, SCHEMAS, COLLECTION, RULES
+    return MCPServer("rag", "Knowledge base", "Search the curated RAG knowledge base on the RAG gateway host (approved reference documents and notes) and cite its passages.",
+                     COLLECTION, SCHEMAS, RULES, RagStore)
+
+
+_BUILDERS = {"vault": _vault, "code": _code, "web": _web, "rag": _rag}
 _CACHE = {}
 
 

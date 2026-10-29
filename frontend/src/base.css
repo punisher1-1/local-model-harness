@@ -44,3 +44,6 @@ select, input { border: 1px solid var(--border-color); border-radius: 10px; back
 .muted { color: var(--text-secondary); font-size: 12px; }
 .error, [role=alert] { color: var(--danger); font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
+
+/* Off-screen text used by the clipboard fallback on plain-HTTP pages (see copyText). */
+.copy-buffer { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }

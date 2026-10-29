@@ -4,6 +4,7 @@ from contextlib import suppress
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import re
 import time
@@ -13,6 +14,9 @@ import httpx
 from telemetry import record_usage, attach_accounting
 from compaction import compact_context, NOTICE
 from backend import thinking_budget
+from code_mcp import MAX_CODE_CHARS
+from number_check import (unverified_numbers, split_inputs, unrun_blocks, code_annotation, inputs_annotation,
+                          annotation as number_annotation)
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -129,14 +133,52 @@ def describe_call(name, args):
     return f"→ {name}({target})"
 
 
+# The image's source commit (Dockerfile build arg); "unknown" when built without it.
+HARNESS_VERSION = re.sub(r"[^0-9A-Za-z._+-]", "", os.getenv("HARNESS_VERSION", ""))[:40] or "unknown"
+
+
+def run_line(model, public_model):
+    """What answered, for reading the answer later: the served model, profile and harness commit."""
+    model = re.sub(r"[*_`\n]", "", str(model or "unknown"))[:120]
+    return f"\n*Run: model {model} · profile {public_model} · harness {HARNESS_VERSION}.*"
+
+
+# The lines the harness appends after an answer. Earlier answers are replayed with them, so the
+# model sometimes writes one itself; that copy would be a false record of what ran.
+FOOTER = re.compile(
+    r"(?:\n[ \t]*-{3,}[ \t]*)?\n+\*(?:Vault MCP activity|MCP activity \(|Demo research activity|Run: model"
+    r"|Context compacted|Unverified numbers|Inputs set in code|Code not run)[^\n]*"
+    r"(?:\n+(?:[ \t]*-{3,}[ \t]*|\*[^\n]*))*\s*\Z")
+
+
+def strip_footer(text):
+    """An answer without the harness footer, whether the harness or the model wrote it."""
+    return FOOTER.sub("", text).rstrip() if isinstance(text, str) else text
+
+
+# What /chat/'s Python runs panel shows for each python_run (the code is added separately).
+RUN_FIELDS = ("stdout", "stderr", "exit_code", "timed_out", "output_limit", "truncated")
+
+
+def run_flags(result, with_exit=True):
+    """What went wrong in a python_run, for the trace and the activity line."""
+    flags = [f"exit {result['exit_code']}"] if with_exit and result.get("exit_code") != 0 else []
+    if result.get("timed_out"):
+        flags.append("timed out")
+    if result.get("truncated") or result.get("output_limit"):
+        flags.append("output truncated")
+    return flags
+
+
 def describe_result(result):
     if result.get("error"):
         return f"  ✗ {result['error']}" + (f" ({result['reason']})" if result.get("reason") else "")
     if "exit_code" in result:
-        return f"  ✓ exit {result['exit_code']}" + (" (timed out)" if result.get("timed_out") else "")
+        mark = "✓" if result["exit_code"] == 0 and not result.get("timed_out") else "✗"
+        return f"  {mark} exit {result['exit_code']}" + "".join(f" ({f})" for f in run_flags(result, False))
     for key, noun in (("results", "results"), ("matches", "matches"), ("notes", "notes")):
         if isinstance(result.get(key), list):
-            return f"  ✓ {len(result[key])} {noun}"
+            return f"  ✓ {len(result[key])} {noun}" + (" (weak match)" if result.get("weak") is True else "")
     if result.get("status"):
         return f"  ✓ {result['status']} {result.get('path', '')}".rstrip()
     if isinstance(result.get("content"), str):
@@ -160,15 +202,96 @@ async def bounded_json(client, url, payload, timeout):
         return value
 
 
+CONTENT_HOLD_CHARS = 200
+
+
+async def streamed_round(client, url, payload, timeout, emit):
+    """One generation round streamed from vLLM, rebuilt into a chat.completion object.
+
+    Reasoning streams to emit("reasoning", ...) as it arrives. Answer text is held until
+    it is clearly not a preamble to a tool call (a tool call appears, the text passes
+    CONTENT_HOLD_CHARS, or the round ends), then streams to emit("content", ...).
+    A backend that answers with plain JSON is accepted as a whole completion.
+    """
+    body = {**payload, "stream": True, "stream_options": {"include_usage": True}}
+    async with client.stream("POST", url, json=body, timeout=timeout) as response:
+        response.raise_for_status()
+        if "text/event-stream" not in response.headers.get("content-type", ""):
+            raw = bytearray()
+            async for chunk in response.aiter_bytes():
+                raw.extend(chunk)
+                if len(raw) > 2_000_000:
+                    raise HTTPException(502, "Research backend response exceeds size limit")
+            value = json.loads(raw)
+            if not isinstance(value, dict):
+                raise ValueError("Backend response must be an object")
+            return value
+        reasoning, content, calls = [], [], {}
+        held, released, finish, usage, size = "", False, None, None, 0
+        async for line in response.aiter_lines():
+            size += len(line)
+            if size > 2_000_000:
+                raise HTTPException(502, "Research backend response exceeds size limit")
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            event = json.loads(data)
+            if not isinstance(event, dict):
+                raise ValueError("Backend stream event must be an object")
+            if isinstance(event.get("usage"), dict):
+                usage = event["usage"]
+            for choice in event.get("choices") or []:
+                delta = choice.get("delta") or {}
+                if choice.get("finish_reason"):
+                    finish = choice["finish_reason"]
+                thought = delta.get("reasoning_content") or delta.get("reasoning")
+                if isinstance(thought, str) and thought:
+                    reasoning.append(thought)
+                    emit("reasoning", thought)
+                for part in delta.get("tool_calls") or []:
+                    slot = calls.setdefault(part.get("index", 0), {"id": None, "type": "function", "function": {"name": "", "arguments": ""}})
+                    if part.get("id"):
+                        slot["id"] = part["id"]
+                    fn = part.get("function") or {}
+                    slot["function"]["name"] += fn.get("name") or ""
+                    slot["function"]["arguments"] += fn.get("arguments") or ""
+                text = delta.get("content")
+                if isinstance(text, str) and text:
+                    content.append(text)
+                    if released:
+                        emit("content", text)
+                    else:
+                        held += text
+                        if not calls and len(held) > CONTENT_HOLD_CHARS:
+                            released = True
+                            emit("content", held)
+        if held and not released and not calls:
+            emit("content", held)
+    message = {"role": "assistant", "content": "".join(content) or None}
+    if reasoning:
+        message["reasoning_content"] = "".join(reasoning)
+    if calls:
+        message["tool_calls"] = [calls[i] for i in sorted(calls)]
+        # vLLM's streaming tool parsers can end a tool-call round with "stop" where the
+        # non-stream response says "tool_calls". A truncated round ("length") stays an error.
+        if finish == "stop":
+            finish = "tool_calls"
+    return {"choices": [{"index": 0, "message": message, "finish_reason": finish}], "usage": usage or {}, "_streamed": True}
+
+
 async def run_research(app, profile, payload, public_model, rid, principal, servers=(), progress=None):
-    """Bounded tool loop. progress, if given, receives each reasoning step as it happens."""
+    """Bounded tool loop. progress, if given, is called as progress(kind, text) while the
+    loop runs: "step" for a whole reasoning step or tool line, "reasoning" and "content"
+    for token deltas. With progress set, every round streams from the backend."""
     steps = []
 
     def step(text):
         if text:
             steps.append(text)
             if progress:
-                progress(text)
+                progress("step", text)
 
     is_mcp = bool(servers)
     if is_mcp:
@@ -188,6 +311,7 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
         catalog_sha256 = store.sha256
         activity_label = "Demo research activity: "
     vault = stores.get("vault")
+    round_cap = profile.mcp_round_output_tokens if is_mcp else policy.max_round_output_tokens
 
     def collection(name):
         return owner[name].collection if name in owner else "demo_notes"
@@ -204,6 +328,10 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
     output_used = 0
     prompt_total = 0
     trace = []
+    printed = []
+    scripts = []
+    runs = []
+    finalizing = retry_note = False
     seen_ids = set()
     status = "failed"
     stage = "prepare"
@@ -213,18 +341,25 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
     try:
         async with asyncio.timeout(deadline):
             messages, compact_state = await compact_context(app, profile, payload, messages, principal, rid, permitted_tools)
-            for round_index in range(policy.max_tool_calls + 1):
+            # One round beyond the tool budget is reserved for a cut-off round's retry.
+            for round_index in range(policy.max_tool_calls + 2):
                 principal.require_profile(public_model)
                 remaining = payload["max_tokens"] - output_used
                 if remaining <= 0:
                     raise HTTPException(400, "Research output budget exhausted before final answer")
-                can_call = calls_used < policy.max_tool_calls and bool(permitted_tools)
+                can_call = not finalizing and calls_used < policy.max_tool_calls and bool(permitted_tools)
                 force_read = (vault is not None and can_call and vault.seen and not vault.read_paths and not vault.writes
                               and vault.discovery_calls >= 2
                               and principal.can_tool(public_model,"vault_read_note",collection("vault_read_note")))
                 round_tools = ([t for t in permitted_tools if t["function"]["name"]=="vault_read_note"]
                                if force_read else permitted_tools)
-                if not can_call:
+                if retry_note:
+                    retry_note = False
+                    messages.append({"role": "user", "content":
+                        "Your previous reply was cut off at the per-round output limit and has been discarded. "
+                        "No further tool calls are available. Using only the evidence already returned, write the "
+                        "complete final answer to my original question now. Return a user-facing answer, not tool-call markup."})
+                elif not can_call and not finalizing:
                     messages[0]["content"] += "\nTool budget reached. Give a final answer from the evidence already returned; acknowledge any gaps."
                     # A fresh, harness-authored turn makes finalization explicit to
                     # Qwen and its template; no extra tool or model round is granted.
@@ -234,7 +369,7 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                         "Do not search or request more notes. If the evidence does not establish a requested fact, "
                         "state that it is unverified in the notes found. Return a user-facing answer, not tool-call markup."})
                 # Reserve final-answer capacity while tools can still be requested.
-                round_limit = min(remaining, policy.max_round_output_tokens) if can_call else remaining
+                round_limit = min(remaining, round_cap) if can_call else remaining
                 token_payload = {"model": payload["model"], "messages": messages,
                                  "add_generation_prompt": True}
                 if can_call:
@@ -257,11 +392,19 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                 if can_call:
                     request_payload["tools"] = round_tools
                 budget = thinking_budget(profile, round_limit, request_payload.get("thinking_token_budget"))
+                if finalizing and budget is not None:
+                    # The answer is what got cut off; keep most of the retry for it.
+                    budget = min(budget, max(1, round_limit // 4))
                 if budget is not None:
                     request_payload["thinking_token_budget"] = budget
                 request_payload.pop("stream_options", None)
                 stage = "generate"
-                result = await bounded_json(app.state.client, app.state.url + "/chat/completions", request_payload, deadline)
+                if progress:
+                    if round_index:
+                        progress("round", "")
+                    result = await streamed_round(app.state.client, app.state.url + "/chat/completions", request_payload, deadline, progress)
+                else:
+                    result = await bounded_json(app.state.client, app.state.url + "/chat/completions", request_payload, deadline)
                 stage = "validate_completion"
                 choices = result.get("choices")
                 if not isinstance(choices, list) or len(choices) != 1:
@@ -280,19 +423,46 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                 output_used += consumed
                 tool_calls = message.get("tool_calls") or []
                 if choice.get("finish_reason") == "length":
-                    raise HTTPException(400, "Research round hit its output limit before completion; shorten the task or adjust the research budget")
+                    if not can_call:
+                        raise HTTPException(400, "Research round hit its output limit before completion; shorten the task or adjust the research budget")
+                    finalizing = retry_note = True
+                    step(f"Round hit its {round_limit:,}-token output limit; retrying once without tools.")
+                    log.info(json.dumps({"event": "research_round_retry", "request_id": rid, "profile": public_model,
+                                         "round": round_index + 1, "round_limit": round_limit, "remaining": payload["max_tokens"] - output_used}))
+                    continue
                 if force_read and not tool_calls:
                     raise ResearchProtocolError("reserved_read_not_followed")
                 if is_mcp and len(tool_calls) > 1:
                     raise ResearchProtocolError("mcp_requires_sequential_calls")
                 reasoning = message.get("reasoning_content") or message.get("reasoning")
-                step(reasoning.strip() if isinstance(reasoning, str) else "")
+                if progress and result.get("_streamed") and isinstance(reasoning, str) and reasoning.strip():
+                    # Already shown token by token; keep it for the trace and end the paragraph.
+                    steps.append(reasoning.strip())
+                    progress("reasoning", "\n\n")
+                else:
+                    step(reasoning.strip() if isinstance(reasoning, str) else "")
                 if not tool_calls:
                     content = message.get("content")
                     if choice.get("finish_reason") != "stop" or not isinstance(content, str) or not content.strip():
                         raise ResearchProtocolError("missing_final_answer")
+                    content = message["content"] = strip_footer(content)
                     activity = " → ".join(trace) if trace else "No tools called"
-                    content += "\n\n---\n*" + activity_label + activity + ".*"
+                    content += "\n\n---\n*" + activity_label + activity + ".*" + run_line(profile.backend_model, public_model)
+                    if profile.verify_numbers == "annotate" and scripts:
+                        given = " ".join(m["content"] for m in payload["messages"]
+                                         if m.get("role") == "user" and isinstance(m.get("content"), str))
+                        checked, flagged = unverified_numbers(message["content"], printed, given)
+                        flagged, inputs = split_inputs(flagged, scripts)
+                        blocks, unrun = unrun_blocks(message["content"], scripts)
+                        if flagged:
+                            content += number_annotation(flagged)
+                        if inputs:
+                            content += inputs_annotation(inputs)
+                        if unrun:
+                            content += code_annotation(blocks, unrun)
+                        log.info(json.dumps({"event": "number_check", "request_id": rid, "profile": public_model,
+                                             "checked": checked, "unverified": len(flagged), "inputs": len(inputs),
+                                             "code_blocks": blocks, "unrun_blocks": len(unrun)}))
                     if compact_state["status"] == "compacted":
                         content += NOTICE
                     status = "completed"
@@ -303,6 +473,8 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                         "usage": {"prompt_tokens": prompt_total, "completion_tokens": output_used,
                                   "total_tokens": prompt_total + output_used}}
                     attach_accounting(answer, compact_state)
+                    if runs:
+                        answer["harness_runs"] = runs
                     return answer
                 if choice.get("finish_reason") != "tool_calls" or not isinstance(tool_calls, list):
                     raise ResearchProtocolError("malformed_tool_completion")
@@ -354,13 +526,23 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                     else:
                         result_data = {"error": "tool_not_allowed"}
                     calls_used += 1
+                    if name == "python_run":
+                        code = str((call["_validated_arguments"] or {}).get("code", ""))[:MAX_CODE_CHARS]
+                        if "exit_code" in result_data:
+                            printed.append(result_data["stdout"])
+                            scripts.append(code)
+                            runs.append({"code": code, **{k: result_data.get(k) for k in RUN_FIELDS}})
+                        else:
+                            runs.append({"code": code, "error": str(result_data.get("error", "failed"))[:200]})
                     safe_name = name if name in tool_names else "unregistered_tool"
                     error = result_data.get("error")
                     reason = result_data.get("reason")
-                    trace.append(safe_name + (" (" + error + (": " + reason if reason else "") + ")" if error else ""))
+                    flags = [error + (": " + reason if reason else "")] if error else run_flags(result_data) if "exit_code" in result_data else []
+                    trace.append(safe_name + (" (" + ", ".join(flags) + ")" if flags else ""))
                     step(describe_result(result_data))
                     log.info(json.dumps({"event": "research_tool", "request_id": rid, "profile": public_model,
                         "tool": safe_name, "status": error or "ok", "call_number": calls_used,
+                        "truncated": result_data.get("truncated") is True or result_data.get("output_limit") is True,
                         "catalog_sha256": catalog_sha256}))
                     messages.append({"role": "tool", "tool_call_id": normalized_call["id"],
                                      "content": json.dumps(result_data, ensure_ascii=True)})
@@ -385,7 +567,7 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
             "elapsed_ms": round((time.monotonic() - started) * 1000)}))
 
 
-async def research_response(app, profile, payload, public_model, stream, principal, servers=()):
+async def research_response(app, profile, payload, public_model, stream, principal, servers=(), want_runs=False):
     if app.state.slots.locked():
         raise HTTPException(429, "Harness concurrency limit reached", headers={"Retry-After": "1"})
     await app.state.slots.acquire()
@@ -393,38 +575,64 @@ async def research_response(app, profile, payload, public_model, stream, princip
     headers = {"X-Request-ID": rid, "X-Harness-Profile-SHA256": app.state.fingerprints[public_model]}
     if not stream:
         try:
-            return JSONResponse(await run_research(app, profile, payload, public_model, rid, principal, servers), headers=headers)
+            result = await run_research(app, profile, payload, public_model, rid, principal, servers)
+            if not want_runs:
+                result.pop("harness_runs", None)
+            return JSONResponse(result, headers=headers)
         finally:
             app.state.slots.release()
 
     async def events():
-        # Each round's reasoning and every tool call stream as reasoning_content while the
-        # loop runs; the final answer is still delivered whole. Heartbeats cover quiet rounds.
-        steps = asyncio.Queue()
-        task = asyncio.create_task(run_research(app, profile, payload, public_model, rid, principal, servers, steps.put_nowait))
+        # Reasoning, tool calls and the answer stream while the loop runs: reasoning and
+        # tool lines as reasoning_content, answer tokens as content. The activity trailer
+        # follows the answer. Heartbeats cover quiet stretches such as a slow tool.
+        events_in = asyncio.Queue()
+        task = asyncio.create_task(run_research(app, profile, payload, public_model, rid, principal, servers,
+                                                lambda kind, text: events_in.put_nowait((kind, text))))
         base = {"id": "chatcmpl-" + rid, "object": "chat.completion.chunk", "created": int(time.time()), "model": public_model}
+        sent = 0
 
-        def reasoning_event(text, first):
-            delta = {"reasoning_content": text + "\n\n", **({"role": "assistant"} if first else {})}
+        def delta_event(delta):
+            nonlocal sent
+            if sent == 0:
+                delta = {"role": "assistant", **delta}
+            sent += 1
             return "data: " + json.dumps({**base, "choices": [{"index": 0, "delta": delta, "finish_reason": None}]}) + "\n\n"
 
         try:
             yield ": research started\n\n"
-            sent = 0
-            while not task.done() or not steps.empty():
-                getter = asyncio.ensure_future(steps.get())
+            streamed = ""
+            while not task.done() or not events_in.empty():
+                getter = asyncio.ensure_future(events_in.get())
                 done, _ = await asyncio.wait({task, getter}, timeout=10, return_when=asyncio.FIRST_COMPLETED)
                 if getter in done:
-                    yield reasoning_event(getter.result(), sent == 0)
-                    sent += 1
+                    kind, text = getter.result()
+                    if kind == "step":
+                        yield delta_event({"reasoning_content": text + "\n\n"})
+                    elif kind == "reasoning":
+                        yield delta_event({"reasoning_content": text})
+                    elif kind == "content":
+                        streamed += text
+                        yield delta_event({"content": text})
+                    elif kind == "round":
+                        # Text streamed before a tool call was a preamble; the answer starts over.
+                        if streamed:
+                            yield delta_event({"content": "\n\n"})
+                        streamed = ""
                     continue
                 getter.cancel()
                 if not done:
                     yield ": research running\n\n"
             result = await task
             base = {"id": result["id"], "object": "chat.completion.chunk", "created": result["created"], "model": public_model}
-            yield "data: " + json.dumps({**base, "choices": [{"index": 0, "delta": {
-                "role": "assistant", "content": result["choices"][0]["message"]["content"]}, "finish_reason": None}]}) + "\n\n"
+            final = result["choices"][0]["message"]["content"]
+            rest = final[len(streamed):] if final.startswith(streamed) else final
+            if rest:
+                yield delta_event({"content": rest})
+            runs = result.pop("harness_runs", None)
+            if want_runs and runs:
+                # Only /chat/ asks for this (X-Harness-Runs: 1); other clients never see the event.
+                yield "data: " + json.dumps({**base, "choices": [], "harness_runs": runs}) + "\n\n"
             yield "data: " + json.dumps({**base, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}) + "\n\n"
             if payload.get("stream_options", {}).get("include_usage"):
                 event = {**base, "choices": [], "usage": result["usage"]}

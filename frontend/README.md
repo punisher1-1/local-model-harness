@@ -1,8 +1,8 @@
 # Harness chat client
 
-A small React client served by the harness at `/chat/`. Its layout comes from the earlier ai-frontend Electron app (top banner, sidebar with recent chats, chat bubbles with avatars, Settings modal), rebranded as Local Model Harness with a text logo placeholder (`src/components/Brand.jsx`). The original project is unchanged. Its RAG server, Electron integration, logos, feedback link, and document upload are not included.
+A small React client served by the harness at `/chat/`. Its layout comes from the earlier ai-frontend Electron app (top banner, sidebar with recent chats, chat bubbles with avatars, Settings modal), rebranded as Local Model Harness with a text logo placeholder (`src/components/Brand.jsx`). The original project is unchanged. Its RAG server, Electron integration, LJA logos, feedback link, and document upload are not included.
 
-Code layout: `src/App.jsx` owns sign-in state, conversations and streaming; `src/components/` holds `Login`, `Sidebar`, `ChatArea`, `MessageBubble`, `ChatInput`, `SettingsModal` and `Brand`, each with a stylesheet in `src/styles/`. Colour tokens live in `src/base.css`; inline style attributes are avoided because the shell's CSP is `style-src 'self'`.
+Code layout: `src/App.jsx` owns sign-in state, projects, conversations and streaming; `src/components/` holds `Login`, `Sidebar`, `ChatArea`, `MessageBubble`, `ChatInput`, `SettingsModal`, `SkillsPanel`, `WorkflowSelect`, `ProjectModal` and `Brand`, each with a stylesheet in `src/styles/`. Colour tokens live in `src/base.css`; inline style attributes are avoided because the shell's CSP is `style-src 'self'`.
 
 ## Use
 
@@ -10,13 +10,25 @@ Build/rebuild the harness Docker image, then open `http://<harness-host>:8200/ch
 
 Choose an authorized profile and optionally a workflow. Workflow and tool choices stick to the chat, and each one is saved with the chat. The workflow picker shows each skill's title and first sentence, and the chosen workflow is sent as `/skill <id>` on every turn. Automatic leaves selection to the harness. On profiles with harness MCP servers, a Tools row turns each server on or off for the chat. The choice is sent as `X-Harness-MCP`; new chats start from the profile's `mcp_default`. See [MCP_VAULT.md](../MCP_VAULT.md). Profiles lock after the first message; start a new chat to switch. The server remains responsible for permissions, prompts, memory, generation settings, and compaction.
 
+### Projects
+
+Projects are folders of chats, one per class or topic, shown above Chats in the sidebar. The **+** beside Projects opens the project dialog: a name, plus the profile, workflow and tools that a new chat in the project starts with (for example IT301 on `local-tools` with Local_AI_Vault and Knowledge base on). Hover a project for **+** (new chat in it) and the pencil (edit or delete). Each chat can still change its own workflow and tools from its Tools row; project defaults only seed new chats, and are trimmed to what the profile allows when the chat starts.
+
+The **Project** picker in the chat header moves the open chat to another project or to none; on a new chat it switches which project the chat will join. Deleting a project never deletes chats: they move to Chats. Projects are saved on the harness with the chat history, keyed by identity, up to 100 per identity.
+
+### My skills
+
+Settings → **Skills** holds your own workflows: a name and Markdown instructions, written there or imported from a `.md` file (up to 16,000 characters, 50 skills per identity). They appear under **My skills** in every chat's Workflow menu and in the project dialog, so a project can start each new chat with one. Built-in skills stay under **Built-in**.
+
+A chosen user skill is sent as `X-Harness-User-Skill` (never as a `/skill` line). The harness loads it for the signed-in identity and adds it to that request's system prompt after the harness rules, marked as the user's own instructions: it shapes the answer and cannot grant tools or permissions or override harness policy. A skill deleted while a chat or project still uses it falls back to Automatic.
+
 The Settings modal shows the authenticated identity and the profiles, workflows and harness tools it may use; it is read-only. The client displays streamed answers, collapsible reasoning, Markdown tables/code, token usage, and compaction notices. Stop cancels the request; Copy copies a message. Clipboard access requires a browser secure context and may be unavailable over plain LAN HTTP.
 
 Signing in exchanges the key once for a browser session (`POST /v1/session`). The harness returns an opaque `harness_session` cookie that is HttpOnly, `SameSite=Strict`, and `Secure` when served over HTTPS. Page scripts cannot read it, and the key is not kept in page memory or browser storage. A reload restores the session, and conversations are saved on the harness. Cookie-authenticated requests must also send `X-Harness-Client: chat`. A cross-origin page cannot add that header without a CORS preflight, which the harness never grants.
 
 Sessions end after `HARNESS_SESSION_IDLE_MINUTES` without activity (default 720, so 12 hours). They also end at `HARNESS_SESSION_MAX_HOURS` after sign-in (default 168, so 7 days), however active they are. A JWT session never outlives its token. Disconnect ends the session on the server. Sessions are held in process memory, at most 256: restarting or redeploying the harness signs everyone out, and a rotated API key cannot outlive the old process. Any request that returns 401 sends the page back to sign-in with an expiry notice. Bearer credentials still work unchanged for other clients and always take precedence over the cookie. A shared service key still grants its existing shared permissions; selecting a profile does not create user isolation.
 
-This first version supplies no web search, Python executor, attachments, or client tool definitions. Existing server-owned capabilities still follow profile policy. Reasoning is displayed but not replayed as conversation content. Failed or stopped assistant output is excluded from follow-up history. No UI system prompt, automatic title request, or second compaction layer is injected.
+The client defines no client tools and has no attachments yet. Vault, Python, web search and knowledge base tools run on the harness under profile policy. Reasoning is displayed but not replayed as conversation content. Failed or stopped assistant output is excluded from follow-up history. No UI system prompt, automatic title request, or second compaction layer is injected.
 
 ## Development
 
@@ -52,7 +64,7 @@ The UI saves a user turn before requesting generation, then saves the completed,
 
 Chats remain until explicitly deleted. Delete chat requires a browser confirmation and permanently removes the active record; backups may retain older copies. Limits: 2 MB per save, 4,096 messages per chat, 500,000 characters per message, and 1,000 conversations per identity. These are storage bounds, not model context allowances. Existing profile context/compaction policies still apply.
 
-Authenticated API: GET `/v1/conversations?offset=0` returns summaries in pages of 100; GET `/v1/conversations/{uuid}` restores a transcript; PUT stores it using revision 0 for creation or the current revision for updates; DELETE requires `?revision=<current>`. Model APIs do not automatically write transcripts. UI chats from other applications are not imported.
+Authenticated API: GET `/v1/conversations?offset=0` returns summaries in pages of 100; GET `/v1/conversations/{uuid}` restores a transcript; PUT stores it using revision 0 for creation or the current revision for updates; DELETE requires `?revision=<current>`. Conversations carry an optional `project_id`; an unknown or deleted project is stored as none. GET `/v1/projects` lists projects; PUT `/v1/projects/{uuid}` creates or replaces one (`name`, `profile`, `skill`, `mcp_servers`); DELETE `/v1/projects/{uuid}` removes it and ungroups its chats. GET `/v1/skills` lists the identity's skills (name and first-sentence summary); GET, PUT (`name`, `content`) and DELETE `/v1/skills/{uuid}` read, save and remove one. Model APIs do not automatically write transcripts. UI chats from other applications are not imported.
 
 ### Backup and recovery
 
@@ -84,7 +96,7 @@ in retained snapshots until their retention expires. There are no external failu
 notifications configured; inspect the unit status/journal.
 
 The deployment-specific units are in `deploy/systemd/`. They assume the checkout is
-`/opt/local-model-harness` and the Docker volume path is
+`/root/local-ai-harness` and the Docker volume path is
 `/var/lib/docker/volumes/local-ai-harness_chat-history/_data`; verify/adapt these
 paths before installing elsewhere. Schedule changes need `systemctl daemon-reload`
 and a timer restart.

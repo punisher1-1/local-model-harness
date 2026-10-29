@@ -1,14 +1,13 @@
 # Persistent memory on ParadeDB
 
-Scoped storage, recall, browser management, and explicit chat save commands are
-available as opt-in features. All bundled profiles ship with recall and chat saves
-disabled so the default setup needs no database. Ordinary conversation and
-compaction never capture memories automatically. Records remain until deleted.
+**Status, 2026-09-25:** Scoped storage, recall, browser management, and explicit
+chat save commands are available. Ordinary conversation and compaction never
+capture memories automatically. Existing records remain until explicitly deleted.
 
 ## Save directly from chat
 
-After configuring storage and enabling `memory_recall.enabled` and `chat_memory`
-on a profile, send one of these as the entire newest user message:
+On `local-home`, `local-work`, `local-tools`, `local-assistant`, or `local-creative`,
+send one of these as the entire newest user message:
 
 ```text
 Remember: fact: My home lab GPU is an RTX 4090.
@@ -56,12 +55,11 @@ memory_recall:
   max_context_bytes: 4096
 ```
 
-All bundled profiles default to disabled. Enable recall only on profiles that
-should read saved memory; set `chat_memory: true` separately to allow chat saves.
+The policy model defaults to disabled; the three bundled lab profiles explicitly
+enable it. Disable it for profiles that should not read personal memory.
 
-1. Verify profile access, then check `memory.read`. A shared key has access only when
-   `allow_shared_service_identity: true` is explicitly configured. A verified JWT
-   without that grant gets ordinary chat with no lookup
+1. Verify profile access, then check `memory.read`. The existing approved shared key
+   has access. A verified JWT without that grant gets ordinary chat with no lookup
    and a `not_authorized` diagnostic; selecting a profile cannot grant memory rights.
 2. Extract up to 24 distinct lexical terms from the first 4,096 characters of the
    latest user message, ignoring common English filler and terms shorter than three
@@ -118,9 +116,9 @@ flowchart LR
   D --> R[Namespace and owner row policies]
 ```
 
-- The harness connects to a dedicated PostgreSQL memory database over verified TLS.
-- The database is `local_ai_memory`; choose a namespace for your deployment.
-  Existing RAG databases remain separate.
+- The harness (`<harness host>:8200`) connects to PostgreSQL (`<database host>:5432`).
+- The dedicated database is `local_ai_memory`; the deployment namespace is
+  `personal_lab`. The RAG corpus remains in `myragdatabase`.
 - `harness_memory_owner` is NOLOGIN. The application uses `harness_memory_app`,
   which has no superuser, BYPASSRLS, owner membership, database/schema creation,
   UPDATE or TRUNCATE privileges.
@@ -128,10 +126,11 @@ flowchart LR
   trusted configuration. Request bodies cannot supply either. Queries bind values,
   apply explicit scope filters, and set transaction-local scope for row security.
   Commit and rollback clear scope before a pooled connection can be reused.
-- A shared key identifies **one service, not an individual**. If shared memory is
-  enabled, every holder can read, save and delete the same records. Use separate
-  verified identities before adding private memories for multiple people; do not
-  silently transfer service-owned records to a newly signed-in user.
+- The current key identifies **one service, not the owner as a verified person**. Every
+  holder of that key can read, save and delete the same memories. The owner explicitly
+  approved this. Introduce separate verified identities before adding someone
+  else's private memories; do not silently assign existing service memories to a
+  newly signed-in user.
 - JWT role grants support separate `memory.read`, `memory.write`, `memory.delete`
   permissions. Profile or research-tool permissions alone grant no memory access.
   `/v1/identity` reports effective memory permissions.
@@ -142,13 +141,16 @@ another scope. PostgreSQL administrators can also access the records. This is no
 independent database verification of each user's token or an enterprise compliance
 certification. A work deployment needs its own identities, namespace and database.
 
-## Try it from the harness container
+## Try it from the harness host
 
-From your project directory, use the CLI inside the running Docker service.
+Enter the container from pve2, then use the CLI inside the running Docker service.
 It reads the existing API key from the container environment, so no credential needs
 to be pasted into a terminal argument or chat.
 
 ```bash
+pct enter 270
+cd /root/local-ai-harness
+
 docker compose exec -T local-model-harness python scripts/memory_cli.py health
 
 printf '%s' 'I prefer concise explanations with practical examples.' |   docker compose exec -T local-model-harness python scripts/memory_cli.py save --category preference
@@ -168,10 +170,10 @@ returns 409. Deleting the row also removes its idempotency record, so do not ret
 old save after deliberately deleting it. A repeated delete returns 404 once absent.
 
 For a local client outside Docker, run `python scripts/memory_cli.py --url
-http://localhost:8200 ...` with `HARNESS_API_KEY` or `HARNESS_TOKEN` set securely in
+http://<harness host>:8200 ...` with `HARNESS_API_KEY` or `HARNESS_TOKEN` set securely in
 its environment. The CLI does not follow redirects or discover proxy settings.
-Database TLS does not secure the separate client-to-harness connection. Use an
-authenticated HTTPS ingress and network restrictions for shared deployments.
+The current lab API URL is HTTP; database TLS does not secure that separate client
+connection. Use an authenticated TLS ingress and network restrictions for work.
 
 ## API contract
 
@@ -219,8 +221,9 @@ an atomic edit). Memory payload responses use `Cache-Control: no-store`.
 ## Configuration and deployment
 
 No memory configuration path means no database pool. Explicit memory operations
-return 503; ordinary chat works with the default disabled recall and chat-save
-settings. Enabling recall without configuring storage makes that profile return 503.
+return 503, and chat works only on profiles with recall disabled. The bundled lab
+profiles now enable recall, so configure storage or disable their `memory_recall`
+settings before using the template without ParadeDB.
 
 1. Apply `sql/memory/000_bootstrap.sql` as an administrator against `postgres`, then
    `001_private_memories.sql` against `local_ai_memory`. These are operator-run,
@@ -230,10 +233,8 @@ settings. Enabling recall without configuring storage makes that profile return 
 2. Provision native PostgreSQL TLS and a matching host/IP SAN certificate; permit the
    app role only from the harness host, to the memory database, over TLS. Create its
    password separately; do not reuse the existing RAG administrator's credentials.
-3. Copy `examples/memory.yaml` to ignored `memory-config/memory.yaml`. Replace the
-   example `host` with your database hostname matching its certificate, and choose
-   a deployment namespace. Provision `database-password` and public `ca.crt`
-   separately. Relative paths resolve beside
+3. Copy `examples/memory.yaml` to ignored `memory-config/memory.yaml`. Provision its
+   `database-password` and public `ca.crt` separately. Relative paths resolve beside
    the configuration. Restrict the directory to root and container group 10001:
    directory 0750, secret/config files 0640, public CA 0644. The Docker user is 10001.
 4. Leave `allow_shared_service_identity: false` for verified-subject deployments.
@@ -245,14 +246,10 @@ settings. Enabling recall without configuring storage makes that profile return 
    docker compose -f docker-compose.yml -f docker-compose.memory.yml up -d --build
    ```
 
-   Use the same overlay arguments for later Compose operations. `memory-config/`
-   is git-ignored and excluded from image builds.
-6. Enable `memory_recall.enabled: true` on the desired profiles in `profiles.yaml`.
-   For explicit chat commands, also set `chat_memory: true`. Leave research chat
-   saves disabled. Home/work profiles require the distinct `scope_namespaces`
-   mappings in `examples/memory.yaml`. JWT users also need matching profile,
-   memory-operation, and scope grants. Restart after changing profiles.
-7. Check memory health, run a synthetic save/search/delete, then test normal chat.
+   The harness host has a deployment-only copy named `docker-compose.override.yml`, so its
+   normal `docker compose up -d --build` continues to include memory. This override
+   and `memory-config/` are git-ignored; credentials are excluded from image builds.
+6. Check memory health, run a synthetic save/search/delete, then test normal chat.
    Changed files/secrets/config require an app restart; changed Compose environment
    or image requires recreation. The app never provisions SQL or rotates credentials.
 
@@ -267,25 +264,28 @@ profiles with recall disabled remain independent. `/health/ready` still checks t
 backend; use `/v1/memories/health` to check memory separately. Malformed local memory
 configuration or unreadable secret files fail startup instead of silently disabling it.
 
-## TLS and access rules
+## Live TLS and access rules
 
-Provision PostgreSQL TLS and restrict the memory application role to the harness
-host. For example, replace the documentation address `192.0.2.10/32` with your
-actual harness address in `pg_hba.conf`:
+Native PostgreSQL TLS is on. The database host's existing RAG authentication rules were preserved;
+these memory-specific rules precede them:
 
 ```text
 local   all             harness_memory_app                       reject
-hostssl local_ai_memory harness_memory_app 192.0.2.10/32          scram-sha-256
+hostssl local_ai_memory harness_memory_app <harness host>/32         scram-sha-256
 host    all             harness_memory_app 0.0.0.0/0              reject
 host    all             harness_memory_app ::0/0                 reject
 ```
 
-Review rule order against existing PostgreSQL access rules before applying it.
-Keep server private keys and CA signing material outside this repository and image;
-mount only the public CA into the harness. Choose a certificate with a SAN matching
-`host` in your memory config and track its expiry. Certificate renewal and backup
-monitoring are operator responsibilities. After renewal, verify a fresh connection;
+Server certificate/key are in PostgreSQL's persistent data directory,
+`/var/lib/postgresql/18/docker/tls/`, owned by postgres (UID 999); the key is 0600.
+The dedicated lab CA signing material is root-only on pve2 under
+`/root/harness-memory-pki`; only the public CA is mounted into the harness host.
+The server certificate expires **2027-09-07 21:42:21 UTC**. Renewal is manual:
+issue a replacement with the same IP SAN using the protected CA, install the pair
+with matching ownership/modes, reload PostgreSQL, then verify a new client connection.
 CA rotation also requires updating client trust and restarting the harness pool.
+Keep an encrypted administrator backup of the CA signing material; the logical
+memory dump does not include it. Automatic certificate renewal is not implemented.
 
 ## Retention, backup and rollback
 
@@ -294,38 +294,43 @@ index entry, but **backups may retain it through their retention window**. The s
 has an active-memory view for future expiry support; expired rows are omitted from
 search but still visible to their owner for list/delete. This API does not set expiry.
 
-Schedule encrypted backups of `local_ai_memory` to storage outside the repository.
-Choose and document a retention window, validate dump archives, monitor failures,
-and test restores in a disposable database. No backup job is installed by this repo.
+A separate pve2 job, `/usr/local/bin/harness-memory-backup.sh`, runs at 02:25 in the
+host's America/Chicago timezone via `/etc/cron.d/harness-memory-backup`. It writes
+custom-format dumps to `/mnt/pve/nas-backup/local-ai-memory/`, with approximately
+30-day retention. It requires the NAS mount, takes an execution lock, validates the
+archive listing, and removes incomplete output on failure. Logs go to
+`/var/log/harness-memory-backup.log`. Successful scheduled runs and restore drills
+still need operator monitoring; the job does not send alerts.
+
+The integration uncovered a separate RAG backup failure: cron could not find `pct`,
+leaving zero-byte `.dump.part` files. The existing RAG script now uses
+`/usr/sbin/pct`; a fresh 38 MB dump completed under cron's restricted PATH and its
+archive listing validated. This does not retroactively repair missing old backups.
+The new memory backup's initial empty schema archive was also restored successfully
+to a disposable database, and that database was removed afterward.
 
 Logical dumps contain database objects/data, not cluster login passwords or TLS
 files. Disaster recovery must provision the dedicated roles, restore into the memory
 database, restore/reissue TLS, rotate/provision the app secret, and reapply network
 rules before enabling the API. Validate forced RLS and application permissions.
 
-To disable recall, set `chat_memory: false` and `memory_recall.enabled: false` on
-each affected profile, then restart. Disabling recall alone while leaving chat
-saves enabled fails profile validation.
-
-To disable storage too, first disable both features on every profile. If using the
-explicit memory overlay, recreate using only `docker-compose.yml`:
-
-```bash
-docker compose -f docker-compose.yml up -d --force-recreate
-```
-
-If using a deployment-only `docker-compose.override.yml`, remove its memory
-mount/environment settings before recreating. For a native deployment, unset
-`HARNESS_MEMORY_CONFIG` and restart. Stored records remain intact. Restore app code
-from a reviewed source version for rollback; do not drop the database to roll back
-application code. Keep any runtime backup containing `.env` private.
+To disable recall, set `memory_recall.enabled: false` on the affected profiles and
+restart the harness. To disable storage as well, first disable recall on every
+profile, then move `docker-compose.override.yml` outside the project and run
+`docker compose up -d --force-recreate`. Stored data remains intact. The pre-recall
+runtime archive is `/root/harness-before-recall-20260908.tar` (app, memory adapter,
+profiles); restoring it does not require a database rollback. Pre-memory runtime rollback archive on the harness host:
+`/root/harness-before-memory-20260907.tar`. Restore only after reviewing the archive;
+its protected `.env` is a deployment secret. Do not drop the memory database to roll
+back app code. HBA and `postgresql.auto.conf` pre-change copies are beside those
+files with `.before-memory` suffixes; reverting them is an administrator operation.
 
 ## Validation and follow-ups
 
 - **113 tests passed** with real disposable PostgreSQL 18.6 for memory and mocked
   generation, including pool reuse, JWT isolation, concurrent duplicate saves,
   rollback cleanup, size limits, SQL injection text, database outage and disabled RLS.
-- Real PostgreSQL 18.4 SQL checks passed for scope isolation, privilege denial,
+- Real PostgreSQL 18.4 SQL checks on the database host passed for scope isolation, privilege denial,
   expiration filtering and cleanup; their synthetic rows were rolled back.
 - Live API save/replay/conflict/search/list/delete passed. Memory survived a harness
   restart; the synthetic record was deleted afterward.
@@ -347,8 +352,8 @@ socket below `/private/tmp/`. Apply migrations there first and enable the test a
 role LOGIN. Never point those tests at the live lab; fixture cleanup deletes its
 synthetic namespaces. Production offers no plaintext transport switch.
 
-Next: collect recall-quality examples before considering semantic embeddings.
-Save/delete remain explicit; do not grant
+Next: collect recall-quality examples, then decide whether semantic embeddings and
+a memory management UI are worthwhile. Save/delete remain explicit; do not grant
 automatic model writes merely to improve retrieval.
 Per-owner storage quotas, automatic certificate renewal and backup failure alerts
 remain operational follow-ups before expanding beyond this personal lab.
@@ -367,7 +372,7 @@ or Open WebUI memory tools do not automatically write to this ParadeDB store.
 
 ## Browser management page (2026-09-16)
 
-Open `/memory` on the harness host (local example: `http://localhost:8200/memory`).
+Open `/memory` on the harness host (lab: `http://<harness host>:8200/memory`).
 Paste the existing harness API key or a verified identity bearer token. Do not use
 the database password. The page holds the bearer credential in JavaScript memory
 only, never a URL, cookie, or browser storage. Disconnect/reload clears it. Use a
@@ -388,15 +393,15 @@ Saved text renders literally, including Markdown and HTML. No third-party script
 or assets are loaded. The page applies restrictive CSP and no-store headers.
 The browser uses the existing memory API; it has no database credentials.
 
-An explicitly enabled `lab-service` scope is shared by every key holder. Labels
-such as “home lab” and “work lab” do not establish isolation. Automatic capture stays off, and
+The current shared `lab-service` scope remains shared. Labels such as “home lab”
+and “work lab” do not establish isolation. Automatic capture stays off, and
 chat compaction never saves a memory. Deletion cannot remove copies already in
 chat histories. Onyx chats only receive harness recall if their model requests
 actually go through a recall-enabled harness profile. This page does not import
 Onyx memories, index the vault, or change n8n workflows.
 
-Home/work scopes are implemented below. Any future imports need source references
-and explicit write authority.
+Suggested next stage: enforced home/work scopes with retrieval-isolation tests,
+then deliberate n8n imports with source references and explicit write authority.
 
 Browser regression checks are opt-in: install Playwright and its Chromium browser,
 then run `HARNESS_BROWSER_TESTS=1 python -m pytest tests/test_memory_ui_browser.py`.
@@ -407,8 +412,7 @@ checks use synthetic intercepted API responses and never contact the live databa
 
 `local-home` and `local-work` are tool-capable profiles cloned from `local-tools`.
 Each has a fixed `memory_recall.scope` (`home` or `work`). Add those model IDs in
-Onyx and start separate new chats. When recall is enabled, existing profiles use
-`legacy`,
+Onyx and start separate new chats. Existing profiles retain `legacy` recall,
 which preserves existing behavior and records. No records are automatically moved
 or copied into either new scope. Saved preferences are also scope-isolated.
 
@@ -449,3 +453,30 @@ Validation includes real disposable PostgreSQL tests for conflicting facts and
 preferences, listing/search/deletion isolation, idempotency per scope, alternating
 connection use, and denied JWT scope selection. Browser tests cover switching
 scopes without retaining the previous list.
+
+## Memory in /chat/ and per-account ownership (2026-10-24)
+
+Memories belong to the identity that saved them as well as to a scope. The service key
+(`lab-service`) owns everything saved before OIDC sign-in and everything saved through
+apps that use the key (Open WebUI, Onyx, n8n); a signed-in account owns its own, separate
+set and recalls only those. The `/memory` page signs in with the key, so it shows the
+service key's memories, not a signed-in account's.
+
+**Settings → Memory** in `/chat/` manages the signed-in person's own memories: pick a
+scope (only the scopes their grant allows), search, add, and delete. It says which
+profiles recall the selected scope. No one can see another person's memories there.
+
+To bring the service key's memories into an account, run inside the container after that
+account has signed in once (dry run first; back up the memory database):
+
+```bash
+docker compose exec -T local-model-harness python scripts/move_memories.py --to alice@example.com --scope home
+docker compose exec -T local-model-harness python scripts/move_memories.py --to alice@example.com --scope home --apply
+```
+
+Copies keep content, category and source conversation; creation time becomes the copy
+time. A rerun after a failure never duplicates, and originals are deleted only after
+every copy succeeded (`--keep` copies without deleting). Memories that apps still save
+through the service key after the move land under `lab-service` again.
+
+`local-tools` recalls the `home` scope since 2026-10-24, sharing it with `local-home`.

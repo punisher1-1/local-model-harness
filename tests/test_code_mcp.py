@@ -126,3 +126,41 @@ def test_round_trip_through_the_real_sandbox_server(tmp_path, monkeypatch):
     finally:
         uv.should_exit = True
         thread.join(timeout=5)
+
+
+def rules_text():
+    from code_mcp import RULES
+    return " ".join(RULES.split())
+
+
+def test_rules_require_python_for_derived_numbers_only():
+    text = rules_text()
+    assert "Use it for derived numbers your answer depends on" in text
+    assert "never mental arithmetic" in text and "Write one script that computes all of them" in text
+    assert "Do not run Python for numbers given in the request or a source" in text
+    assert "A writing task with no calculation needs no run." in text
+    assert "every number, total, percentage" not in text
+
+
+def test_rules_bound_length_limit_drafting():
+    text = rules_text()
+    assert "write the draft once, in the answer and never repeatedly in your reasoning" in text
+    assert "Count exactly the text the limit applies to" in text and "not the subject line or signature" in text
+    assert "with one python_run, adjust the draft once" in text
+
+
+def test_rules_require_shown_code_to_be_the_code_that_ran():
+    text = rules_text()
+    assert "Code you show in the answer must be code that ran, exactly as it ran." in text
+    assert "put each one in the run, printing its own labeled result; one run can hold several" in text
+    assert "Never show a tidied, renamed or partial rewrite" in text and 'labeled "not run"' in text
+    assert "Quote output exactly as python_run printed it" in text
+
+
+def test_rules_cover_quoted_forms_formula_checks_choices_and_ballparks():
+    text = rules_text()
+    assert "Print each number in the exact form you will quote it" in text
+    assert "a value printed as a fraction or in other units does not count" in text
+    assert "test it in the same run against a direct count or simulation" in text and "print the number of mismatches" in text
+    assert "Label values you choose (allocations, thresholds, assumptions) as chosen" in text
+    assert "Do not state typical or ballpark figures as facts" in text

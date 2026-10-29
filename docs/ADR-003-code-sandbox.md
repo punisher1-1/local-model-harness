@@ -1,35 +1,35 @@
-# ADR-003: Model-run Python sandbox on the tools VM
+# ADR-003: Model-run Python sandbox on the Hermes VM
 
-**Status:** Accepted; implemented in `sandbox/` and `code_mcp.py`, pending deployment on the tools VM
+**Status:** Accepted; implemented in `sandbox/` and `code_mcp.py`, pending deployment on Hermes
 **Date:** 2026-10-15
-**Deciders:** Project maintainer
+**Deciders:** Project owner
 
 ## Context
 
-In the maintainer's test prompt, models given a code interpreter (as in Open WebUI) answered
+In the owner's test prompt, models given a code interpreter (as in Open WebUI) answered
 correctly. Without one, they produced broken code and wrong math. The harness can call
 MCP servers through reviewed adapters (`mcp_registry.py`) and shows them as per-chat
 Tools chips in `/chat/`, but it has no way to run code today.
 
-A spare, mostly idle lab VM (`tools-vm.example.test`, 4 vCPU, 4 GB RAM, 64 GB disk,
-hypervisor firewall on) is available to host it.
+The Hermes VM (the sandbox VM, `<sandbox host>`, 4 vCPU, 4 GB RAM, 64 GB disk,
+Proxmox firewall on) is mostly idle. pve1 is at about 95% RAM, so the VM keeps 4 GB.
 
 Decisions already made:
 - **The model runs the code**, not the user. There is no terminal pane.
 - **Python only:** Python 3.12 with numpy, pandas, sympy and matplotlib.
-- **The tools VM is dedicated** to the sandbox. Nothing else runs there.
+- **Hermes is repurposed** as a dedicated sandbox host. Whatever runs there now is stopped.
 - **No network** from inside the sandbox. Packages are baked into the image.
 
 ## Decision
 
-Run a small FastMCP server on the tools VM that exposes one tool, `python_run`. Each call
+Run a small FastMCP server on Hermes that exposes one tool, `python_run`. Each call
 starts a fresh, locked-down Docker container from a prebuilt image, runs the code, returns
 the output, and removes the container. The harness adds a `code` adapter to the MCP
 registry. It appears as a **Python sandbox** chip next to Local_AI_Vault on local-tools,
 local-home and local-work.
 
 ```text
-/chat/ ──► harness host ──────────────MCP + bearer token──► sandbox server (tools VM :8202)
+/chat/ ──► harness (the harness host) ──MCP + bearer token──► sandbox server (Hermes :8202)
                 │                                      │ docker run --rm --network none ...
                 └── adapter checks code size, ◄── output ─┘ one container per call
                     caps output, logs metadata
@@ -67,24 +67,24 @@ per chat would need long-lived containers, which is deferred.
 | Time | 30 s wall clock, enforced by the server; the container is killed and removed |
 | Lifetime | `--rm`; a sweeper removes any container left by a crash |
 | Concurrency | at most 2 runs at a time; extra calls get a "busy, retry" error |
-| Image | `harness-sandbox:py312`, built on the tools VM, pinned digest recorded |
+| Image | `harness-sandbox:py312`, built on Hermes, pinned digest recorded |
 
 Future hardening: switch the runtime to gVisor (`--runtime runsc`), so the container also
 sits behind a userspace kernel. It's optional for a single-user lab VM but cheap to add later.
 
-## Server and network controls (tools VM)
+## Server and network controls (Hermes)
 
 - The FastMCP server runs as a systemd service under a dedicated `sandbox` user. That user
   is in the `docker` group, so it has root-equivalent access to the VM. This is acceptable
   only because the VM is dedicated to the sandbox.
-- It listens on TCP 8202. The hypervisor firewall and host firewall allow it **only from
-  the harness host** (`harness.example.test`). SSH stays as it is today.
+- It listens on TCP 8202. The Proxmox firewall and host firewall allow it **only from
+  the harness host** (`<harness host>`). SSH stays as it is today.
 - A bearer token is required: the harness sends `HARNESS_CODE_MCP_TOKEN` from the harness host's
   `.env`. The token adds a check against other LAN devices that can reach the VM, but
-  the traffic is plain HTTP on the lab network, so the firewall rule is the main boundary.
+  the traffic is plain HTTP on VLAN 10, so the firewall rule is the main boundary.
 - Logs record the request ID, code length, exit code, duration and timeout, never the
   code or output.
-- Set the VM to start at boot once it is in use.
+- Hermes has `onboot: false`; set it to start at boot once it is in use.
 
 ## Harness changes
 
@@ -119,15 +119,15 @@ sits behind a userspace kernel. It's optional for a single-user lab VM but cheap
 
 ## Rollout and verification
 
-1. On the tools VM: install Docker. Build the image
+1. On Hermes: inventory and stop what runs today, then install Docker. Build the image
    and install the server and systemd unit. Add the firewall rule and token.
 2. Escape tests, each expected to fail safely: network access (`urllib` to the
-   internet and to `harness.example.test`), writes outside `/work`, fork bomb, a 1 GB
+   internet and to `<harness host>`), writes outside `/work`, fork bomb, a 1 GB
    allocation, an infinite loop, reading `/etc/shadow`, and a 1 MB print. Correctness
    tests: arithmetic, numpy, sympy, and an exception traceback.
 3. Harness: adapter, tests with a fake MCP server, deploy to the harness host, then enable it
    in `profiles.local.yaml`.
-4. Rerun the original test prompt with the sandbox on and off, and compare.
+4. Rerun the owner's original test prompt with the sandbox on and off, and compare.
 
 Rollback: turn off the chip or remove `code` from `mcp_servers` (the harness keeps
-working), or stop the service on the tools VM. Calls then fail with a clear error.
+working), or stop the service on Hermes. Calls then fail with a clear error.

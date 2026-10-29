@@ -1,6 +1,6 @@
 # Copy into an ignored memory-config directory; paths are relative to this file.
-namespace: club_demo
-host: memory-db.example.test
+namespace: personal_lab
+host: <database host>
 port: 5432
 database: local_ai_memory
 user: harness_memory_app

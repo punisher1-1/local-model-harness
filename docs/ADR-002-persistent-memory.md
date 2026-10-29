@@ -2,23 +2,21 @@
 
 **Status:** Accepted; explicit storage deployed and verified
 **Date:** 2026-09-07
-**Deciders:** Project maintainer
+**Deciders:** Project owner (selected persistent chat memories first)
 
 ## Context
 
 The harness is stateless across chats apart from history supplied by Open WebUI.
-A separate RAG corpus can share the PostgreSQL server. The design needs low-latency
-memory without a reranker and a path from a single-user lab to separately deployed work systems.
+ParadeDB already hosts the RAG corpus. The owner wants low-latency memory without a
+reranker and a path from a single-user lab to separately deployed work systems.
 
 ## Decision
 
 Use a dedicated `local_ai_memory` database with owner and restricted application
 roles. Start with explicitly saved, bounded private records and lexical search. Use
 server-derived scope, application permissions and row-level checks. Stage semantic
-embeddings separately; bounded lexical recall was enabled on 2026-09-08. Storage
-is opt-in; shared lab-service access requires explicit operator configuration,
-with retention until deletion. Automatic capture remains off; recall is read-only
-and profile-controlled.
+embeddings separately; bounded lexical recall was enabled on 2026-09-08. Live storage is explicitly enabled for the shared lab-service identity, with retention
+until deletion. Automatic capture remains off; recall is read-only and profile-controlled.
 
 ## Options considered
 
@@ -26,7 +24,7 @@ and profile-controlled.
 |---|---|---|---|---|
 | Reuse RAG chunks/credentials | Low initially | Existing service | Couples retention and permissions | Familiar but wrong data/privilege boundary |
 | Separate database on ParadeDB | Moderate | No additional service | Shared server resources; independent logical schema | Existing Postgres operations |
-| Separate pgvector instance | Moderate | Additional running instance | Separate resource/lifecycle boundary | Existing but independently maintained candidate |
+| Revive the old pgvector container | Moderate | Additional running instance | Separate resource/lifecycle boundary | Existing but independently maintained candidate |
 
 ## Trade-offs
 
@@ -40,7 +38,7 @@ inherit RAG superuser privileges or broad database access through existing rules
 
 - The RAG corpus remains separate; the harness now exposes explicit memory management.
 - Memory writes must be explicit and user-reviewable before retention is enabled.
-- The service-key identity cannot distinguish individuals holding the same key.
+- The service-key identity cannot distinguish the owner from another key holder.
 - Native TLS, restricted login, scoped pool, API permissions and CLI are implemented.
 - Bounded lexical recall is implemented; a frontend-independent memory management page is available at `/memory`.
 - RLS context trusts the application; it is not independent token verification in SQL.

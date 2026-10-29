@@ -5,7 +5,7 @@ from mcp_client import failure_reason, unavailable
 
 
 def status_error(code):
-    request = httpx.Request("POST", "http://tools-vm/mcp")
+    request = httpx.Request("POST", "http://hermes/mcp")
     return httpx.HTTPStatusError("x", request=request, response=httpx.Response(code, request=request))
 
 
@@ -27,4 +27,4 @@ def test_unavailable_logs_the_reason_without_details(caplog):
     caplog.set_level("WARNING", logger="uvicorn.error")
     result = unavailable("web", "web_search", ExceptionGroup("tg", [status_error(401)]))
     assert result == {"error": "web_unavailable", "reason": "unauthorized"}
-    assert '"reason": "unauthorized"' in caplog.text and "tools-vm" not in caplog.text
+    assert '"reason": "unauthorized"' in caplog.text and "hermes" not in caplog.text

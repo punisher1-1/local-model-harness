@@ -80,6 +80,52 @@ def test_brave_results_are_mapped_and_cleaned(monkeypatch):
                                   "extra_snippets": ["a", "b", "c"], "age": "2 days ago"}]
 
 
+def test_brave_context_is_mapped_and_bounded(monkeypatch):
+    monkeypatch.setattr(web, "BRAVE_KEY", "key-under-test")
+    monkeypatch.setattr(web, "CONTEXT_TOTAL_CHARS", 5000)
+
+    def handler(request):
+        assert request.url.path == "/res/v1/llm/context"
+        assert request.headers["X-Subscription-Token"] == "key-under-test"
+        p = request.url.params
+        assert p["q"] == "proxmox" and p["maximum_number_of_tokens"] == "2048"
+        assert p["maximum_number_of_tokens_per_url"] == "1024" and p["maximum_number_of_urls"] == "8"
+        assert p["freshness"] == "pw"
+        return httpx.Response(200, json={
+            "grounding": {"generic": [
+                {"url": "https://pve.proxmox.com/", "title": "Proxmox <b>VE</b>",
+                 "snippets": ["Use  List<int>\n  here", {"table": [1, 2]}]},
+                {"url": "javascript:alert(1)", "title": "bad", "snippets": ["x"]},
+                {"url": "https://empty.example/", "title": "none", "snippets": []},
+                {"url": "https://big.example/", "title": "Big", "snippets": ["y" * 9000, "z" * 100]}],
+                "map": []},
+            "sources": {"https://pve.proxmox.com/": {"title": "Proxmox VE", "hostname": "pve.proxmox.com",
+                                                     "age": ["Wednesday, January 15, 2025", "2025-01-15", "1 day ago", "2025-01-15T13:45:02Z"]},
+                        "https://big.example/": {"age": []}}})
+
+    async def go():
+        async with mock_client(handler) as client:
+            return await web.brave_context("proxmox", 2048, "pw", client)
+    result = run(go())
+    first, big = result["results"]
+    assert first == {"title": "Proxmox VE", "url": "https://pve.proxmox.com/", "age": "2025-01-15",
+                     "snippets": ["Use  List<int>\n  here", '{"table": [1, 2]}']}
+    assert big["age"] == "" and len(big["snippets"][0]) == web.CONTEXT_SNIPPET_CHARS and big["snippets"][1] == "z" * 100
+    assert result["truncated"] is False
+
+
+def test_brave_context_stops_at_the_total_cap(monkeypatch):
+    monkeypatch.setattr(web, "CONTEXT_TOTAL_CHARS", 100)
+    body = {"grounding": {"generic": [{"url": f"https://p{i}.example/", "title": "t", "snippets": ["a" * 60]} for i in range(3)]}}
+
+    async def go():
+        async with mock_client(lambda r: httpx.Response(200, json=body)) as client:
+            return await web.brave_context("q", 1024, "", client)
+    result = run(go())
+    assert [len(r["snippets"][0]) for r in result["results"]] == [60, 40] and result["truncated"]
+    assert "freshness" not in str(result)
+
+
 def test_brave_rate_limit_is_reported():
     async def go():
         async with mock_client(lambda r: httpx.Response(429)) as client:
@@ -146,4 +192,7 @@ def test_tools_validate_arguments_and_report_refusals(monkeypatch):
         assert (await call("web_search", {"query": "x", "count": 50}))["error"] == "invalid_arguments"
         assert (await call("web_search", {"query": "x"}))["error"] == "search_failed"
         assert (await call("web_read", {"url": "file:///etc/passwd"}))["error"] == "unsupported_url"
+        assert (await call("web_context", {"query": "x", "max_tokens": 512}))["error"] == "invalid_arguments"
+        assert (await call("web_context", {"query": "x", "freshness": "pq"}))["error"] == "invalid_arguments"
+        assert (await call("web_context", {"query": "x"}))["error"] == "search_failed"
     run(go())

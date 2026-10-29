@@ -1,6 +1,10 @@
 services:
   local-model-harness:
-    build: .
+    build:
+      context: .
+      args:
+        # Set by the deploy command: HARNESS_VERSION=$(git rev-parse --short HEAD)
+        HARNESS_VERSION: ${HARNESS_VERSION:-unknown}
     env_file: .env
     environment:
       HARNESS_CHAT_DB: /app/chat-data/conversations.sqlite3

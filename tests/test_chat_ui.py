@@ -26,3 +26,5 @@ def test_static_chat_has_no_secrets_and_constrained_paths(tmp_path,monkeypatch):
         assert r.headers['cache-control']=='no-store'
         assert c.get('/chat/assets/app.js').status_code==200
         assert c.get('/chat/assets/%2e%2e/index.html').status_code==404
+        root=c.get('/',follow_redirects=False)
+        assert root.status_code==307 and root.headers['location']=='/chat/'

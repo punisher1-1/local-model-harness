@@ -56,7 +56,7 @@ was added. Prefer targeted API records or smaller pages to avoid this work entir
 
 ## Markdown reported as application/octet-stream
 
-The reported attachment was Markdown stored in BoltAI's file
+The owner identified the attachment as Markdown from the vault stored in BoltAI's file
 system. Inspection of the installed application's bundled provider-conversion code
 found the exact exception text: its OpenAI-compatible conversion rejects non-image
 file parts before constructing/sending the HTTP request. This is a client-side file
@@ -81,8 +81,8 @@ The installed BoltAI application and its private project data were not modified.
 
 ## Operator rollback
 
-Restore a reviewed source version and rebuild/restart for a full rollback,
-preserving deployment-only credentials separately. To disable only
+Harness host archive: `/root/harness-before-evidence-fix-20260911.tar`. Restore into
+`/root/local-ai-harness` and rebuild/restart for the prior runtime. To disable only
 evidence summaries, set `local-tools.compaction.summarize_tool_results: false` and
 restart; large current results can then be rejected again. The larger profile ceiling
 can independently be reverted in its Qwen preset. No database rollback is required.

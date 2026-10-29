@@ -26,6 +26,3 @@ profiles.local.yaml
 ._*
 *.tar
 *.tar.gz
-
-# Personal prompts stay on the host and can be mounted explicitly.
-prompts/assistant.md

@@ -18,7 +18,22 @@
 .message-content .error, .message-content .muted { margin: 8px 0 0; }
 .message-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-secondary); }
 .copy { margin-left: auto; font-size: 11px; padding: 3px 10px; border-radius: var(--radius-sm); color: var(--text-secondary); border: 1px solid var(--border-color); }
-.copy:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.copy:hover:not(:disabled) { background: var(--bg-tertiary); color: var(--text-primary); }
+.copy.copied { color: var(--accent-color); border-color: var(--accent-color); }
+.copy.failed { color: var(--danger); border-color: #ffb6b355; }
+.copy:disabled { opacity: .5; cursor: default; }
+
+/* Code blocks: a header bar with the language and Copy, so the button never covers code
+   and stays visible on touch screens. */
+.code-block { margin: 12px 0; border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: #0b1222; }
+.code-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px 4px 14px; border-bottom: 1px solid var(--border-color); background: #111b2e; font-size: 11px; color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.code-block pre { margin: 0; border: 0; border-radius: 0; }
+.copy.code-copy { margin: 0; }
+
+/* Copy and Resend under your own messages. */
+.user-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.copy.user-copy { margin-left: 0; color: #d6e5ff; border-color: var(--user-bubble-border); }
+.copy.user-copy:hover:not(:disabled) { background: #ffffff1a; color: #fff; }
 
 .markdown.streaming > :last-child::after { content: '▍'; margin-left: 2px; color: var(--accent-color); animation: blink 1s step-start infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -35,7 +50,13 @@
 .message-content code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .markdown :not(pre) > code { background: #263751; color: #d6e5ff; font-size: .88em; padding: 2px 6px; border-radius: 4px; box-decoration-break: clone; }
 .markdown table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
-.markdown th, .markdown td { border: 1px solid var(--border-color); padding: 8px 12px; text-align: left; }
+.markdown th, .markdown td { border: 1px solid var(--border-color); padding: 8px 12px; text-align: left; vertical-align: top; }
+/* Message text wraps anywhere, which makes a column's minimum width one letter, so the
+   first (label) column got crushed ("Archit/ecture"). Labels now wrap only between words;
+   other columns may still break long tokens such as URLs so the table fits narrow screens,
+   with a floor so they never collapse. A table that still cannot fit scrolls. */
+.markdown th, .markdown td { min-width: 8ch; }
+.markdown td:first-child, .markdown th:first-child { overflow-wrap: break-word; word-break: normal; }
 .markdown th { background: #22334f; font-weight: 600; }
 .markdown blockquote { margin: 16px 0; border-left: 3px solid #7ea6df; padding: 2px 16px; color: #becde4; background: #17263e; }
 .markdown hr { border: 0; border-top: 1px solid var(--border-color); margin: 24px 0; }
@@ -47,3 +68,24 @@
   .message-content { padding: 12px 14px; font-size: 14px; }
 }
 .message-content .working { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+.working-dots { display: inline-flex; gap: 4px; margin-right: 10px; vertical-align: middle; }
+.working-dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-color); animation: working-bounce 1.2s ease-in-out infinite; }
+.working-dots span:nth-child(2) { animation-delay: .15s; }
+.working-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes working-bounce { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .working-dots span { animation: working-fade 1.6s ease-in-out infinite; }
+  @keyframes working-fade { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+}
+
+.message-content details.python-runs { margin: 12px 0 0; padding-top: 8px; border-top: 1px solid var(--border-color); }
+.python-run { margin-top: 10px; }
+.python-run-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.python-run-label { margin: 6px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.message-content .python-run pre { margin: 0; white-space: pre-wrap; color: var(--text-primary); }
+.run-problem, .message-content .python-run pre.run-stderr { color: var(--danger); }
+
+.message-attachments { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.message-wrapper.user .message-content .message-attachments details { margin: 0; color: #d6e5ff; font-size: 12px; }
+.message-attachments summary { padding: 4px 8px; border: 1px solid var(--user-bubble-border); border-radius: 8px; overflow-wrap: anywhere; }
+.message-attachments pre { max-height: 240px; margin: 6px 0 0; white-space: pre-wrap; color: var(--text-primary); }

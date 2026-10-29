@@ -1,6 +1,6 @@
 # Conversation compaction and client compatibility
 
-**Implemented 2026-09-10.** All six vLLM profiles enable bounded, request-local
+**Implemented 2026-09-10.** All four lab profiles enable bounded, request-local
 compaction. The default policy model remains disabled unless a profile enables it.
 Compaction summarizes older visible turns; it does not save memories to ParadeDB,
 edit the client transcript, or provide unlimited conversation storage.
@@ -150,9 +150,11 @@ work is reported in compaction diagnostics rather than added to its usage object
 Compaction policy participates in the profile fingerprint; the versioned summarizer
 prompt lives in `compaction.py`.
 
-Disabling compaction stops summary calls while retaining the BoltAI compatibility
-fix. For a full code rollback, restore a reviewed source version and rebuild;
-no database rollback is needed. Keep deployment secrets outside source archives.
+Harness host pre-change runtime archive: `/root/harness-before-compaction-20260910.tar`.
+It contains the prior app/research code, profiles and Dockerfile. Disabling compaction
+is sufficient to stop summary calls while retaining the BoltAI compatibility fix.
+Restoring the whole archive and rebuilding also restores the old reasoning-field
+rejection; no database rollback is needed.
 
 ## Verification
 
@@ -228,7 +230,7 @@ Summaries now explicitly distinguish completed work from open requests; continua
 instructions tell the model to answer the latest user request rather than replay
 an earlier answer. Regression coverage checks that four recent turns (when they
 fit) and the current request remain intact. These changes do not establish the
-cause of the operator's reported repeated answer: the available live logs did not contain
+cause of the owner's reported repeated answer: the available live logs did not contain
 the relevant compaction event, and the full conversation was not supplied.
 
 Live sampling overrides were preserved during deployment. Repository local-tools

@@ -1,14 +1,19 @@
 import React, {useEffect, useState} from 'react';
 import {identity as getIdentity, currentSession} from '../client';
+import SkillsPanel from './SkillsPanel';
+import MemoryPanel from './MemoryPanel';
 import '../styles/SettingsModal.css';
+import '../styles/ProjectModal.css';
 
-// Read-only view of what the harness grants this credential. Policy is
-// server-owned, so nothing here changes permissions or generation settings.
-function SettingsModal({catalog, onDisconnect, onClose}) {
+// What the harness grants this credential (read-only; policy is server-owned), plus the
+// user's own skills, which shape answers but never change permissions or tools.
+function SettingsModal({catalog, userSkills, shareGroups, onSkillsChanged, onDisconnect, onClose}) {
   const [tab, setTab] = useState('connection');
   const [who, setWho] = useState(null);
   const [session, setSession] = useState(null);
   const [error, setError] = useState('');
+  // Memory shows only when this identity may read at least one scope.
+  const memory = who?.memory_scopes?.length > 0 && who.memory_permissions?.includes('memory.read');
 
   useEffect(() => {
     let live = true;
@@ -17,7 +22,8 @@ function SettingsModal({catalog, onDisconnect, onClose}) {
   }, []);
 
   useEffect(() => {
-    const onKey = e => e.key === 'Escape' && onClose();
+    // Escape while typing (for example in the skill editor) must not discard the draft.
+    const onKey = e => e.key === 'Escape' && !e.target.closest?.('input, textarea, select') && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -39,27 +45,35 @@ function SettingsModal({catalog, onDisconnect, onClose}) {
           <div className="settings-sidebar" role="tablist">
             <button role="tab" aria-selected={tab === 'connection'} className={`tab-btn ${tab === 'connection' ? 'active' : ''}`} onClick={() => setTab('connection')}>Connection</button>
             <button role="tab" aria-selected={tab === 'profiles'} className={`tab-btn ${tab === 'profiles' ? 'active' : ''}`} onClick={() => setTab('profiles')}>Profiles</button>
+            <button role="tab" aria-selected={tab === 'skills'} className={`tab-btn ${tab === 'skills' ? 'active' : ''}`} onClick={() => setTab('skills')}>Skills</button>
+            {memory && <button role="tab" aria-selected={tab === 'memory'} className={`tab-btn ${tab === 'memory' ? 'active' : ''}`} onClick={() => setTab('memory')}>Memory</button>}
           </div>
 
           <div className="settings-content">
             {tab === 'connection' && (
               <section className="settings-section">
                 <h3>Harness identity</h3>
-                <p className="setting-desc">Signed in with a browser session cookie. The key itself is not stored in the page. Activity keeps the session alive until the maximum lifetime.</p>
+                <p className="setting-desc">{session?.user ? 'Signed in with your identity provider.' : 'Signed in with an access key.'} The browser holds only a session cookie; no key or token is stored in the page. Activity keeps the session alive until the maximum lifetime.</p>
                 {error && <p className="error" role="alert">{error}</p>}
                 {!who && !error && <p className="muted">Loading…</p>}
                 {who && (
                   <dl className="settings-list">
-                    <dt>Identity</dt><dd>{who.kind} · {who.actor_id}</dd>
+                    {session?.user ? <><dt>Signed in as</dt><dd>{session.user.name || session.user.email}{session.user.name && session.user.email ? ` · ${session.user.email}` : ''}</dd>
+                      <dt>Groups</dt><dd>{session.user.groups?.length ? session.user.groups.join(', ') : 'None'}</dd></>
+                      : <><dt>Identity</dt><dd>{who.kind} · {who.actor_id}</dd></>}
                     {session && <><dt>Idle timeout</dt><dd>{formatDuration(session.idle_timeout_seconds)} without activity</dd>
                     <dt>Session ends</dt><dd>{new Date(session.expires_at * 1000).toLocaleString()} at the latest</dd></>}
                     {who.expires_at && <><dt>Token expires</dt><dd>{new Date(who.expires_at * 1000).toLocaleString()}</dd></>}
                     <dt>Memory scopes</dt><dd>{who.memory_scopes?.length ? who.memory_scopes.join(', ') : 'None'}</dd>
                   </dl>
                 )}
-                <button className="btn secondary-btn" onClick={onDisconnect}>Disconnect</button>
+                <button className="btn secondary-btn" onClick={onDisconnect}>Sign out</button>
               </section>
             )}
+
+            {tab === 'memory' && memory && <MemoryPanel scopes={who.memory_scopes} permissions={who.memory_permissions}/>}
+
+            {tab === 'skills' && <SkillsPanel skills={userSkills} shareGroups={shareGroups} onChanged={onSkillsChanged}/>}
 
             {tab === 'profiles' && (
               <section className="settings-section">

@@ -1,8 +1,8 @@
 # Harness-managed skills
 
 Skills are trusted repository Markdown instructions, separate from identity,
-model settings, memory, and UI configuration. The bundled writing workflows target
-academic editing; profiles that do not opt in are unchanged.
+model settings, memory, and UI configuration. This first stage migrates two
+course-writing profiles; the other profiles are unchanged.
 
 ## Available writing workflows
 
@@ -23,7 +23,9 @@ default_skill: draft-rewrite
 Each ID loads `skills/<id>.md` relative to the profiles configuration directory.
 Files must exist, be nonempty, fit within 64 KiB, and resolve inside that skills
 directory. IDs are bounded lowercase letters/digits/hyphens; profiles allow at
-most 16 unique IDs and must name one as their default. Invalid configuration
+most 16 unique IDs. `default_skill` is optional: when set it must name a listed skill;
+when left out (or `""`), the UI shows Automatic and the model uses a workflow only when
+the user selects it or the request clearly matches it. Invalid configuration
 fails startup. Only trusted administrators should edit these files.
 
 ## Selecting a workflow
@@ -74,14 +76,15 @@ Docker copies the skills into the image. After changing skill files, rebuild and
 recreate the service; restarting alone does not update image-owned files. Native
 runs load them at process startup. There is no hot reload or public skill upload.
 
-Rollback: restore a reviewed source version, then rebuild
+Rollback for the first the harness host deployment: restore files from
+`/root/harness-before-skills-20261011.tar` into `/root/local-ai-harness`, then rebuild
 and recreate the service. Added skill files may remain unused after restoring the
 old application, Dockerfile, and profiles. Memory and identity files are unaffected.
 
 ## Validation
 
 Regression suite: 211 passed, 27 skipped for optional integration requirements.
-Live synthetic checks passed on writing profiles: draft-only proofreading,
+Live synthetic checks passed on both school profiles: draft-only proofreading,
 explicit three-section APA review, and HTTP 400 for an unavailable skill. This
 verifies the harness endpoint; client-specific behavior still needs user testing.
 
@@ -98,3 +101,32 @@ The `/chat/` Workflow picker lists each enabled skill by its first heading, and 
 sentence of the selected (or default) skill under the header. `/v1/profiles` exposes only that
 title and sentence (`skill_info`), never the full instructions. A chosen workflow sticks to the
 chat: the UI sends `/skill <id>` on every turn and saves the choice with the conversation.
+
+
+## Skills from the chat UI
+
+Besides these repository skills, each identity can keep its own Markdown skills in
+`/chat/` (Settings → Skills; see [frontend/README.md](frontend/README.md#my-skills)).
+They are stored in the chat database, not in `skills/`, need no profile change or restart,
+and apply only when selected for a chat or project. The harness adds a selected one to
+that request's system prompt after its own rules, as user-authored instructions that
+cannot grant tools or override policy. Choosing a user skill and a `/skill` built-in on
+the same turn is refused.
+
+### Sharing a skill with a group
+
+A signed-in account can share one of its skills with identity groups (the `role_grants`
+names in the identity config, such as `harness_family`): open the skill and tick the group
+under **Share with**. Members of that group see it under **Shared with me** in Settings →
+Skills and in their Workflow menus, labelled with the owner's name. For them it is
+read-only; **Duplicate** makes an editable copy of their own.
+
+- Edits apply to members on their next message; there is no copy to keep in sync.
+- The harness checks group membership each time the skill is used, not only when it is
+  listed. Unticking a group, or deleting the skill, stops its use at once; members then see
+  "That skill no longer exists or is no longer shared with you."
+- Membership comes from the signed-in session, so a Pocket ID group change applies at the
+  member's next sign-in.
+- A shared skill is added to the system prompt as "Shared skill", naming its author, with
+  the same limits as a user's own: it cannot grant tools or override harness rules.
+- Sharing needs an OIDC (or JWT) account; the service key cannot share.

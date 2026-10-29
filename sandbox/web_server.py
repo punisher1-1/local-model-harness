@@ -1,8 +1,9 @@
 """Web search and page reading MCP server for the local model harness.
 
-Runs on the tools VM next to the Python sandbox, under its own service user. Two tools:
-web_search queries the Brave Search API (the key lives only on this host) and web_read
-fetches one public page as plain text. the tools VM's firewall blocks connections into the lab,
+Runs on the Hermes VM next to the Python sandbox, under its own service user. Three tools:
+web_search queries the Brave Search API (the key lives only on this host), web_context asks
+Brave's LLM Context API for the query-relevant passages of the top pages, and web_read
+fetches one public page as plain text. Hermes' firewall blocks connections into the lab,
 and web_read also refuses any URL that resolves to a private, loopback, link-local or
 reserved address, including after redirects. The harness on the harness host is the only client.
 
@@ -30,11 +31,17 @@ from common import require_token
 log = logging.getLogger("harness-web")
 
 BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
+BRAVE_CONTEXT_URL = "https://api.search.brave.com/res/v1/llm/context"
 BRAVE_KEY = os.getenv("BRAVE_API_KEY", "")
 DAILY_SEARCH_LIMIT = int(os.getenv("WEB_DAILY_SEARCH_LIMIT", "300"))
 MAX_CONCURRENT = int(os.getenv("WEB_MAX_CONCURRENT", "4"))
 MAX_PAGE_BYTES = 2_000_000
 MAX_TEXT_CHARS = 16000
+# web_context: Brave's token budget is approximate, so characters are capped here too.
+CONTEXT_URLS = 8
+CONTEXT_SNIPPET_CHARS = 4000
+CONTEXT_TOTAL_CHARS = 32000
+FRESHNESS = ("pd", "pw", "pm", "py")
 MAX_REDIRECTS = 5
 TIMEOUT = 15
 USER_AGENT = "LocalModelHarness/1.0 (personal research assistant)"
@@ -82,6 +89,50 @@ async def brave_search(query, count, client):
                         "extra_snippets": [clean(x, 400) for x in (item.get("extra_snippets") or [])[:3]],
                         "age": clean(item.get("age") or item.get("page_age"), 40)})
     return {"source": "brave", "results": results}
+
+
+def trim(text, limit):
+    # Snippets can be code or JSON-serialized tables, so whitespace and angle brackets are kept.
+    text = str(text or "").strip()
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+async def brave_context(query, max_tokens, freshness, client):
+    params = {"q": query, "count": 20, "maximum_number_of_urls": CONTEXT_URLS,
+              "maximum_number_of_tokens": max_tokens,
+              # Half the budget per page, so at least two sources can contribute.
+              "maximum_number_of_tokens_per_url": max(512, max_tokens // 2),
+              "context_threshold_mode": "balanced", "safesearch": "moderate"}
+    if freshness:
+        params["freshness"] = freshness
+    response = await client.get(BRAVE_CONTEXT_URL, params=params,
+                                headers={"Accept": "application/json", "X-Subscription-Token": BRAVE_KEY})
+    if response.status_code == 429:
+        return {"error": "search_rate_limited"}
+    if response.status_code != 200:
+        return {"error": "search_failed"}
+    data = response.json()
+    sources = data.get("sources") if isinstance(data.get("sources"), dict) else {}
+    results, budget = [], CONTEXT_TOTAL_CHARS
+    for item in ((data.get("grounding") or {}).get("generic") or [])[:CONTEXT_URLS]:
+        url = item.get("url") if isinstance(item, dict) else None
+        if not isinstance(url, str) or urlsplit(url).scheme not in {"http", "https"}:
+            continue
+        snippets = []
+        for raw in item["snippets"] if isinstance(item.get("snippets"), list) else []:
+            if budget <= 0:
+                break
+            text = trim(raw if isinstance(raw, str) else json.dumps(raw), min(CONTEXT_SNIPPET_CHARS, budget))
+            if text:
+                snippets.append(text)
+                budget -= len(text)
+        if not snippets:
+            continue
+        age = (sources.get(url) or {}).get("age") if isinstance(sources.get(url), dict) else None
+        # Brave's age list is [full date, YYYY-MM-DD, relative, ISO]; the short date is enough.
+        results.append({"title": clean(item.get("title"), 200), "url": url[:2048], "snippets": snippets,
+                        "age": clean(age[1] if isinstance(age, list) and len(age) > 1 else "", 40)})
+    return {"source": "brave_context", "results": results, "truncated": budget <= 0}
 
 
 def check_url(url, resolve=socket.getaddrinfo):
@@ -203,6 +254,15 @@ def build_server(allowed_hosts, client_factory=None):
         return await guarded("web_search", lambda client: brave_search(query.strip(), count, client))
 
     @mcp.tool()
+    async def web_context(query: str, max_tokens: int = 2048, freshness: str = "") -> str:
+        """Search the web with Brave and return the query-relevant passages of up to 8 pages."""
+        if not 1 <= len(query.strip()) <= 400 or not 1024 <= max_tokens <= 8192 or freshness not in ("", *FRESHNESS):
+            return json.dumps({"error": "invalid_arguments"})
+        if not take_search_slot():
+            return json.dumps({"error": "daily_search_limit"})
+        return await guarded("web_context", lambda client: brave_context(query.strip(), max_tokens, freshness, client))
+
+    @mcp.tool()
     async def web_read(url: str) -> str:
         """Fetch one public web page and return its readable text (up to 16,000 characters)."""
         if not 1 <= len(url) <= 2048:
@@ -220,7 +280,7 @@ def main():
     if not BRAVE_KEY:
         raise SystemExit("Set BRAVE_API_KEY")
     port = int(os.getenv("WEB_PORT", "8203"))
-    allowed = [h.strip() for h in os.getenv("WEB_ALLOWED_HOSTS", "localhost:*,127.0.0.1:*").split(",") if h.strip()]
+    allowed = [h.strip() for h in os.getenv("WEB_ALLOWED_HOSTS", "127.0.0.1:*,localhost:*").split(",") if h.strip()]
     log.info(json.dumps({"event": "start", "port": port, "daily_search_limit": DAILY_SEARCH_LIMIT}))
     uvicorn.run(require_token(build_server(allowed).streamable_http_app(), token),
                 host=os.getenv("WEB_BIND", "0.0.0.0"), port=port, log_level="warning")

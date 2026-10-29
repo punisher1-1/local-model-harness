@@ -1,6 +1,6 @@
 """Python sandbox MCP server for the local model harness (ADR-003).
 
-Runs on the dedicated tools VM. Exposes one tool, python_run. Each call starts a
+Runs on the dedicated Hermes VM. Exposes one tool, python_run. Each call starts a
 fresh Docker container with no network, a read-only root filesystem, a non-root
 user and CPU/memory/process/time limits, then removes it. The harness on the harness host
 is the only client: the host firewall limits the port and every request must
@@ -163,7 +163,7 @@ def main():
         raise SystemExit("Set SANDBOX_TOKEN to a random secret of at least 24 characters")
     host = os.getenv("SANDBOX_BIND", "0.0.0.0")
     port = int(os.getenv("SANDBOX_PORT", "8202"))
-    allowed = [h.strip() for h in os.getenv("SANDBOX_ALLOWED_HOSTS", "localhost:*,127.0.0.1:*").split(",") if h.strip()]
+    allowed = [h.strip() for h in os.getenv("SANDBOX_ALLOWED_HOSTS", "127.0.0.1:*,localhost:*").split(",") if h.strip()]
     log.info(json.dumps({"event": "start", "image": IMAGE, "swept": asyncio.run(sweep()), "port": port}))
     app = require_token(build_server(allowed).streamable_http_app(), token)
     uvicorn.run(app, host=host, port=port, log_level="warning")

@@ -14,10 +14,7 @@ This is an independent repository, developed alongside the
 profile retrieves bundled synthetic notes using local Python tools, with no
 embedding or database dependency. It uses the same OpenAI-compatible connection
 pattern, preserves chat history, and exposes named profiles instead of backend model
-names. Multiple profiles can use the same loaded model. The default profiles are
-`local-assistant`, `local-creative`, `local-research`,
-`local-tools`, `local-home`, and `local-work`. Memory is disabled by default;
-the home/work profiles become separate memory scopes only after you configure storage.
+names. Multiple profiles can use the same loaded model. The profiles are `local-assistant`, `local-creative`, `local-research`, and `local-tools`.
 They follow the single model currently served by vLLM. Exact-ID presets preserve the
 Qwen recipe; unknown models inherit backend generation defaults. `local-tools` passes
 attached client functions back to BoltAI/Open WebUI for execution.
@@ -26,8 +23,9 @@ See [TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md) and [TELEMETRY.md](TELEMETRY.md).
 ## Built-in chat client
 
 The Docker image includes a neutral web client at `/chat/`, with profile/workflow
-selection, streaming Markdown, reasoning, token usage, and persistent conversation
-history. Credentials clear on reload; saved chats return after reconnecting. See [frontend/README.md](frontend/README.md)
+selection, streaming Markdown, reasoning, token usage, persistent conversation
+history, projects that group chats with their own default tools and workflow, and
+your own Markdown skills that a chat or project can apply. Credentials clear on reload; saved chats return after reconnecting. See [frontend/README.md](frontend/README.md)
 for setup, authentication boundaries, and current limitations.
 
 ## Quick start
@@ -41,17 +39,9 @@ Requires Python 3.11+ or Docker. Run commands from this directory.
    vLLM's `GET /v1/models`. Pin an exact ID if multiple models/aliases are advertised.
 3. Review the context ceiling and exact-ID presets in `profiles.yaml`. Auto mode caps
    the chosen window to the advertised model capacity; pinned windows are operator-owned.
-4. The defaults target vLLM and use its exact chat `/tokenize` endpoint. For
-   Ollama, llama.cpp, LM Studio, or another server without that endpoint, use the
-   [portable setup](#other-openai-compatible-servers) below.
-5. The tracked `prompts/assistant.md.example` is ready to use. For a personal prompt,
-   copy it to ignored `prompts/assistant.md` and update the desired profiles'
-   `system_prompt_file`. Prompts are visible to the model; keep credentials out.
-6. Memory needs no configuration for the default setup. Enable it separately
-   using [MEMORY.md](MEMORY.md).
-   Tool servers (vault, Python sandbox, web search) are also off by default; see
-   [MCP_VAULT.md](MCP_VAULT.md) and [sandbox/README.md](sandbox/README.md) to enable them.
-7. Start the service:
+4. For vLLM, keep `token_count_mode: vllm`. For a server without vLLM's chat
+   `/tokenize` endpoint, select `utf8_estimate` and review its limitation below.
+5. Start the service:
 
 ```bash
 docker compose up -d --build
@@ -69,27 +59,6 @@ In default service-key mode, startup intentionally fails for a missing/placehold
 invalid profile, or missing/empty prompt. Config and prompts are loaded once at
 startup. After profile/prompt edits: `docker compose restart`. After `.env` edits:
 `docker compose up -d --force-recreate`. After code edits: rebuild.
-
-### Other OpenAI-compatible servers
-
-Use `profiles.portable.yaml` for a basic assistant without vLLM-specific tools,
-compaction, or memory. It uses `utf8_estimate`, which is a heuristic rather than a
-guaranteed token bound. These servers have not been live-tested with this template.
-
-1. Set `GEN_URL` in `.env` to your backend URL ending in `/v1` and configure its key
-   if needed. Use an address reachable from inside Docker when running containers.
-2. Set `HARNESS_CONFIG=profiles.portable.yaml` in `.env`.
-3. Edit `profiles.portable.yaml`: replace `backend_model: local-model` with the exact
-   ID advertised by your backend's `/v1/models`. Set `context_window` to its actual
-   configured capacity and keep `max_output_tokens` plus the margin below it.
-4. Start with either command above. In Docker, the portable config is included in
-   the image: rebuild after editing it. If switching an existing deployment, also
-   recreate the container to apply `.env` changes.
-
-Simply changing `token_count_mode` in the vLLM defaults is insufficient: enabled
-compaction, research, and client tools require exact vLLM counting. The portable
-config disables those features and pins the backend model instead of using vLLM
-capacity discovery. Run the chat smoke check against your server before sharing it.
 
 ### Connect Open WebUI
 
@@ -135,17 +104,18 @@ Readiness is authenticated; liveness exposes no configuration or network details
 
 ## Identity scaffold
 
-[IDENTITY.md](IDENTITY.md) explains the opt-in JWT verifier and role-based profile,
-tool and demo-collection permissions. The default deployment still uses the shared
-lab service key; no enterprise login/token flow is enabled. `/v1/identity` reports
-the authenticated context. [ADR-001](docs/ADR-001-identity-boundary.md) records the
-architecture decision and remaining work.
+[IDENTITY.md](IDENTITY.md) explains the identity modes and role-based profile, tool
+and collection permissions. The default deployment uses the shared lab service key.
+OIDC mode ([ADR-004](docs/ADR-004-oidc-sign-in.md)) signs each person in to `/chat/`
+with a passkey through Pocket ID, gives them their own chats, projects, skills and
+grants, and keeps a scoped service key for apps such as Open WebUI. `/v1/identity`
+reports the authenticated context. [ADR-001](docs/ADR-001-identity-boundary.md)
+records the original identity boundary.
 
 ## Long conversations and BoltAI
 
 [COMPACTION.md](COMPACTION.md) documents the new bounded context-compaction stage.
-All six default vLLM profiles summarize older visible turns near their input limit,
-preserve
+All four lab profiles summarize older visible turns near their input limit, preserve
 the current request, recheck the complete prompt, and show a notice when compaction
 is used. Summaries are temporary request context, not saved memories. They may lose
 detail and add latency; the original transcript remains in your client.
@@ -156,19 +126,40 @@ fields and non-text/tool inputs remain rejected.
 
 ## Persistent memory
 
-Memory storage, recall, and chat saves are **opt-in**. The default profiles work
-without a database. [MEMORY.md](MEMORY.md) explains how to provision a dedicated
-PostgreSQL database, enable recall and explicit saves, and manage permissions.
+Explicit chat saves are available on assistant, creative, tools, home, and work
+profiles: `Remember: fact: <exact text>`. The harness returns the saved scope and
+memory ID. Automatic capture stays off; see [MEMORY.md](MEMORY.md).
 
-When enabled, save exact text with `Remember: fact: <exact text>` on a
-`chat_memory` profile. Automatic capture stays off. `local-home` and `local-work`
-use distinct configured memory scopes; start separate conversations because
-supplied chat history is not isolated by memory scope.
+Use `local-home` and `local-work` for isolated home/work memory recall with UI tool
+support. Existing profiles retain legacy memories. Start separate conversations
+for each environment; supplied chat history is not isolated by memory scope.
 
-The browser at `/memory` uses your harness bearer credential. It can manage saved
-memories only after storage and permissions are configured. A shared service key
-means every holder shares the same service-owned records; use verified individual
-identities before storing private memories for multiple club members.
+Use `it-troubleshoot` for guided IT troubleshooting. Its default workflow,
+`troubleshoot-session`, works one diagnostic step per turn, searches the knowledge base's
+`it` collection first, and ends every reply with a case log. When the problem is solved,
+choose **Troubleshooting write-up** in the Workflow menu to turn the session into
+documentation; it is saved to the vault under `Troubleshooting/` only when you ask. The
+profile has no memory, so it can serve as the template for a work deployment. Grant it to
+admins only until it is tested.
+
+Use `local-bench` for benchmark prompts. It has the same tools and sampling as
+`local-home`, with `local-tools`' reasoning (medium effort, fixed 4,096-token budget),
+the Python sandbox on by default, the number check on, and no memory or skills, so
+saved data never changes an answer. Change it only on purpose,
+and record the harness commit and model with each result. Grant it to admins only.
+
+Manage saved memories in the browser at `/memory` on the harness host. Use your
+harness API key (not the database password). See [MEMORY.md](MEMORY.md) for scope,
+permissions, retry behavior, and integration with chat frontends.
+
+
+[MEMORY.md](MEMORY.md) documents the deployed ParadeDB connection, explicit memory
+API, CLI walkthrough, ownership, TLS, backups and rollback. Save/list/search/delete
+are available on the harness host in the deliberately shared `lab-service` scope, retained until
+explicit deletion. All four lab profiles now have **bounded read-only recall**:
+up to four records and 4 KiB per request, with normal full-prompt token checks.
+Automatic capture is off; save/delete remain explicit. Configure memory storage or
+disable `memory_recall` in those profiles when reusing the template without ParadeDB.
 
 ## Local research: first tool-enabled profile
 
@@ -224,7 +215,7 @@ Add an exact-ID preset when that model needs explicit sampling/template controls
 
 | Control | Location / behavior |
 |---|---|
-| System prompt | `prompts/assistant.md.example`; configure a separate file per profile if desired |
+| System prompt | `prompts/assistant.md`; use a separate file per profile if desired |
 | Rules | Profile `rules`; appended to the server system prompt |
 | Model identity | Profile `backend_model`: `auto` follows one advertised model per request, or pin an ID |
 | Sampling | `temperature`, `top_p`, optional `seed`, `stop` |
@@ -356,6 +347,13 @@ points. These comments do not enable new profiles, permissions, tools, or endpoi
 
 ## Design references
 
+Reviewed local sources: `paradedb-rag-api/app.py` and its README; vault pages
+`wiki/entities/open-webui.md`, `wiki/entities/parade-api.md`, and
+`wiki/concepts/open-terminal-evaluation.md`. These informed server authority,
+explicit model selection, preserved history, and separating tool execution from chat.
+The vault describes historical deployments; no live infrastructure was changed or
+assumed to have the same model loaded today.
+
 Backend contracts checked against official documentation:
 [vLLM OpenAI-compatible server](https://docs.vllm.ai/en/latest/serving/online_serving/openai_compatible_server/)
 and [Ollama OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility).
@@ -366,6 +364,14 @@ For `application/octet-stream` attachment errors or oversized fetched-page resul
 see [BOLTAI_TROUBLESHOOTING.md](BOLTAI_TROUBLESHOOTING.md). The 2026-09-11 fix enables
 bounded current-tool evidence summaries and full available context on `local-tools`.
 Plain text content arrays are accepted; binary files still need client-side extraction.
+
+## Additional personal and course profiles
+
+Extra profiles for one deployment (a family member's assistant, course-writing
+workflows) belong in `profiles.local.yaml`, which is ignored by Git and mounted over
+`profiles.yaml` by `docker-compose.override.yml`. Give each its own
+`memory_recall.scope` and keep personal prompts in ignored files under `prompts/`.
+
 
 ### Reasoning output allowance and empty answers (2026-10-09)
 
@@ -419,8 +425,8 @@ compatible client/proxy timeouts; no automatic retry is performed.
 
 
 Current reasoning preferences: `local-tools` uses medium; local-assistant,
-local-creative, local-research, local-home, and local-work
-use low. Thinking remains enabled. These are exact-ID Qwen settings,
+local-creative, local-research, local-home, local-work, and any optional
+deployment-only profiles use low. Thinking remains enabled. These are exact-ID Qwen settings,
 not universal reasoning parameters for every model. Low is a template instruction,
 not a hard token cap. The separate 4,096-token cap currently applies only to
 local-tools. Other profiles retain their 8,192-token combined output allowance.
@@ -452,9 +458,27 @@ reasoning cap held, but the answer itself needed more than the remaining 4,096 t
 Generation logs record the effective budget for each call. Profiles without a ratio or
 budget are unchanged.
 
+
+### MCP round cap and cut-off retry (2026-10-23)
+
+Each harness MCP tool-loop round that may still call tools is capped at
+`mcp_round_output_tokens` (default 8,192, reasoning included), so a single round cannot
+spend the whole request budget. A long answer written in such a round could exceed the cap
+and fail with "Research round hit its output limit". Raise the cap on a profile that writes
+long answers, keeping room under `max_output_tokens` for a retry; for example 12,288 with a
+20,480 output allowance.
+
+When a tool-capable round is cut off (`finish_reason: length`), the harness discards it and
+retries once with tools off and the remaining request allowance, asking for the complete
+final answer from the evidence already returned. On that retry the reasoning cap is at most
+a quarter of the allowance. The reasoning trace notes the retry and the log records a
+`research_round_retry` event. A cut-off retry, or a cut-off round that already had tools off,
+still fails as before. When streaming, text from the discarded round has already reached the
+client, so the complete answer follows it.
+
 ## Repository-managed skills
 
-Writing profiles can compose reusable writing workflows from trusted Markdown
+The school profiles now compose reusable writing workflows from trusted Markdown
 files. See [SKILLS.md](SKILLS.md) for defaults, explicit `/skill` selection,
 capability boundaries, and deployment. Pasting a draft still returns only the
 corrected draft.
@@ -468,43 +492,64 @@ and the separate client-tool execution mode.
 ## Python sandbox
 
 `local-tools`, `local-home` and `local-work` can run Python through a sandboxed MCP server
-on the tools VM. Each run is a fresh container with no network, and nothing persists
+on the Hermes VM. Each run is a fresh container with no network, and nothing persists
 between runs. In `/chat/` it is the **Python sandbox** chip. It is on by default for
 local-tools and off for home and work. The design is in
 [docs/ADR-003-code-sandbox.md](docs/ADR-003-code-sandbox.md); setup, escape tests and
 operations are in [sandbox/README.md](sandbox/README.md). It needs `HARNESS_CODE_MCP_URL` and
 `HARNESS_CODE_MCP_TOKEN` in `.env` on any harness whose profiles list `code`.
 
+When the sandbox is selected, its rules require Python for derived numbers the answer
+depends on (totals, projections, threshold crossings), computed in one labeled script,
+and forbid runs for numbers given in the request or a source. For a length limit, the
+model drafts once, counts exactly the limited text with one run and adjusts once, instead
+of redrafting in its reasoning.
+
 ## Web search
 
 `local-tools`, `local-home` and `local-work` can search the web with Brave and read pages,
-through a second server on the tools VM. In `/chat/` it is the **Web search** chip. It
+through a second server on the Hermes VM. The model is told to prefer `web_context`, which
+uses Brave's LLM Context API to return only the query-relevant passages of the top pages
+(2,048 tokens by default), over `web_search` plus a full 16,000-character `web_read`. In `/chat/` it is the **Web search** chip. It
 starts off in every profile because searches use prepaid credits. The Brave key stays on
-the tools VM. Page fetches refuse private and LAN addresses, including after redirects. Setup and
-guards are in [sandbox/README.md](sandbox/README.md#web-search-server-tools-vm). It needs
+Hermes. Page fetches refuse private and LAN addresses, including after redirects. Setup and
+guards are in [sandbox/README.md](sandbox/README.md#web-search-server-hermes-vm). For
+troubleshooting questions the rules send the model to the product's own documentation and
+setting names first, and to another source when a page does not match the symptom. It needs
 `HARNESS_WEB_MCP_URL` and `HARNESS_WEB_MCP_TOKEN` in `.env`.
+
+## Knowledge base search
+
+The **Knowledge base** chip gives the model `rag_search`, which queries the ParadeDB RAG
+gateway on the RAG gateway host (`POST /v1/search`). The gateway runs the same hybrid search, dedup,
+rerank and abstention floor as a RAG chat turn, but returns passages with their title and
+page or section locator instead of an answer. The harness model then writes the answer
+and applies them to the conversation, alongside the vault, sandbox and web tools. The
+gateway's own chat stays verbatim; here the knowledge base is a trusted source to reason
+from. The rules ask for honest attribution: before saying a named document says something,
+the model searches for it (or presents the point as its own knowledge), and anything
+presented as the source's position or quoted must come from a returned passage, while the model's own analysis reads as its own.
+It cites the passages it relies on and quotes only where wording matters. When the
+gateway's floor calls a match weak, the model says so briefly and answers normally.
+
+It is on by default in `local-tools` and available in `local-home` and `local-work`. It
+needs `HARNESS_RAG_URL` (the gateway base URL, `http://<RAG gateway host>:8100`) and
+`HARNESS_RAG_TOKEN`, which must match `SEARCH_TOKEN` in the gateway's `.env`. The search
+endpoint stays off until that token is set. Results are capped at 10 passages of 4,000
+characters each. Add `rag` to a profile's `mcp_servers` in `profiles.local.yaml` to enable it.
 
 ## Reasoning during tool use
 
-When harness tools run, each round's reasoning and a one-line summary of every tool call
-(for example `→ vault_search(Proxmox)` then `✓ 3 results`) stream as `reasoning_content`
-while the loop works. `/chat/` shows the newest step in the bubble, with the full trace
-under Reasoning. BoltAI and Open WebUI show it as reasoning too. Call summaries show only
-the target (a query, path, URL or a script's first line), never note bodies, scripts or
-page text. The final answer still arrives whole. Non-stream responses carry the trace in
+When harness tools run on a stream request, every round streams from vLLM. Reasoning
+tokens and a one-line summary of every tool call (for example `→ vault_search(Proxmox)`
+then `✓ 3 results`) arrive as `reasoning_content`, and the final answer arrives token by
+token as `content`, followed by the activity line. `/chat/` shows the newest reasoning
+line in the bubble until the answer starts, with the full trace under Reasoning. BoltAI
+and Open WebUI show it as reasoning too. Call summaries show only the target (a query,
+path, URL or a script's first line), never note bodies, scripts or page text.
+
+Answer text is held until it passes 200 characters, a tool call appears or the round
+ends, so a short "let me check" preamble before a tool call is never shown as the
+answer. The harness still requires vLLM's final usage chunk to enforce the output
+budget. Non-stream responses use non-stream rounds and carry the trace in
 `message.reasoning_content`.
-
-## License
-
-[MIT](LICENSE). Model weights and third-party services have their own terms.
-
-## Publishing a copy
-
-Do not upload `.env`, personal prompts, identity/memory configuration, database
-backups, or Git history containing private deployment details. `.gitignore` affects
-future tracking; it cannot remove files or details from earlier commits.
-
-For a source-only release, export the reviewed public files without `.git` or
-deployment-only files. Extract them into a new directory and create a new
-repository from that source. Making the original repository public would also expose its existing history. Keep that repository private until
-its history is separately sanitized.

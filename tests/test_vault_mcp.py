@@ -12,7 +12,7 @@ def test_read_only_validation_and_search_receipts(monkeypatch):
     store=VaultStore();calls=[]
     async def fake(name,args):
         calls.append(name)
-        return {'results':[{'path':'Lab/note.md','snippet':'test'},{'path':'../secret.md'},{'path':'.obsidian/config.md'}]} if name=='vault_search' else {'content':'x'*18000}
+        return {'results':[{'path':'Lab/note.md','snippet':'test'},{'path':'../secret.md'},{'path':'.obsidian/config.md'}]} if name=='vault_search' else {'content':'x'*50000}
     monkeypatch.setattr(store,'call',fake)
     async def run():
         assert (await store.execute('vault_delete_note',{'path':'Lab/note.md'}))['error']=='tool_not_allowed'
@@ -20,7 +20,7 @@ def test_read_only_validation_and_search_receipts(monkeypatch):
         assert not calls
         assert len((await store.execute('vault_search',{'query':'Lab'}))['results'])==1
         result=await store.execute('vault_read_note',{'path':'Lab/note.md'})
-        assert result['truncated'] and len(result['content'])==16000
+        assert result['truncated'] and len(result['content'])==48000
         assert (await store.execute('vault_search',{'query':'x','limit':100}))['error']=='invalid_arguments'
     asyncio.run(run())
 
@@ -65,16 +65,16 @@ def test_folder_listing_grants_only_safe_in_folder_reads(monkeypatch):
     store=VaultStore();calls=[]
     async def fake(name,args):
         calls.append((name,args))
-        return {'notes':[{'path':'CS101/Unit 5/Prompt.md'},{'path':'CS101/Unit 50/Other.md'},{'path':'CS101/Unit 5/.hidden.md'}]} if name=='vault_list_notes' else {'content':'Full prompt'}
+        return {'notes':[{'path':'IN254/Unit 5/Prompt.md'},{'path':'IN254/Unit 50/Other.md'},{'path':'IN254/Unit 5/.hidden.md'}]} if name=='vault_list_notes' else {'content':'Full prompt'}
     monkeypatch.setattr(store,'call',fake)
     async def run():
         for prefix in ['../x','/etc','a//b','a/.hidden']:
             assert (await store.execute('vault_list_notes',{'path_prefix':prefix}))['error']=='invalid_folder'
         assert not calls
-        result=await store.execute('vault_list_notes',{'path_prefix':'CS101/Unit 5'})
-        assert result['notes']==[{'path':'CS101/Unit 5/Prompt.md'}]
-        assert (await store.execute('vault_read_note',{'path':'CS101/Unit 5/Prompt.md'}))['content']=='Full prompt'
-        assert store.read_paths=={'CS101/Unit 5/Prompt.md'}
+        result=await store.execute('vault_list_notes',{'path_prefix':'IN254/Unit 5'})
+        assert result['notes']==[{'path':'IN254/Unit 5/Prompt.md'}]
+        assert (await store.execute('vault_read_note',{'path':'IN254/Unit 5/Prompt.md'}))['content']=='Full prompt'
+        assert store.read_paths=={'IN254/Unit 5/Prompt.md'}
     asyncio.run(run())
 
 
@@ -158,3 +158,35 @@ def test_loop_writes_a_full_length_note(tmp_path,monkeypatch):
         r=ask(c)
         assert r.status_code==200 and 'vault_create_note' in r.text
     assert calls==[('vault_create_note',len(body))] and len(body)>2048
+
+
+def test_read_cap_is_configurable_and_bounded(monkeypatch):
+    from vault_mcp import DEFAULT_READ_CHARS
+    monkeypatch.setenv('HARNESS_VAULT_MCP_URL','http://vault/mcp')
+    assert VaultStore().read_chars == DEFAULT_READ_CHARS == 48000
+    monkeypatch.setenv('HARNESS_VAULT_READ_CHARS','90000')
+    store = VaultStore()
+    async def fake(name,args):
+        return {'results':[{'path':'Lab/long.md','snippet':'s'}]} if name=='vault_search' else {'content':'y'*85000}
+    monkeypatch.setattr(store,'call',fake)
+    async def run():
+        await store.execute('vault_search',{'query':'long'})
+        result = await store.execute('vault_read_note',{'path':'Lab/long.md'})
+        assert len(result['content']) == 85000 and result['truncated'] is False
+    asyncio.run(run())
+    for bad in ['abc', '1000', '500000']:
+        monkeypatch.setenv('HARNESS_VAULT_READ_CHARS', bad)
+        with pytest.raises(ValueError):
+            VaultStore()
+
+
+def test_long_notes_fit_through_the_transport(monkeypatch):
+    import vault_mcp
+    monkeypatch.setenv('HARNESS_VAULT_MCP_URL','http://vault/mcp')
+    seen = {}
+    async def fake_call_tool(url, name, args, timeout, prefix, headers=None, max_bytes=65536):
+        seen['max_bytes'] = max_bytes
+        return {'content': 'z'}
+    monkeypatch.setattr(vault_mcp, 'call_tool', fake_call_tool)
+    asyncio.run(VaultStore().call('vault_read_note', {'path': 'Lab/a.md'}))
+    assert seen['max_bytes'] >= 48000 * 6

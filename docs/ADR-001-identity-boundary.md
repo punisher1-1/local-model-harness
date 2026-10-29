@@ -1,8 +1,8 @@
 # ADR-001: Explicit service-key and verified JWT identity modes
 
-**Status:** Accepted for scaffold; enterprise provider rollout pending
+**Status:** Accepted for scaffold; action items 3–4 and the single-mode rule superseded by [ADR-004](ADR-004-oidc-sign-in.md)
 **Date:** 2026-09-07
-**Deciders:** Project maintainer
+**Deciders:** Project owner; implementation within the agreed identity scaffold
 
 ## Context
 

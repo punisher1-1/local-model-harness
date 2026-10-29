@@ -5,7 +5,7 @@ After=docker.service
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=/usr/bin/python3 /opt/local-model-harness/scripts/backup_chat_history.py --database /var/lib/docker/volumes/local-ai-harness_chat-history/_data/conversations.sqlite3 --directory /var/backups/local-ai-harness/chat-history --keep 30
+ExecStart=/usr/bin/python3 /root/local-ai-harness/scripts/backup_chat_history.py --database /var/lib/docker/volumes/local-ai-harness_chat-history/_data/conversations.sqlite3 --directory /var/backups/local-ai-harness/chat-history --keep 30
 TimeoutStartSec=10min
 Nice=10
 NoNewPrivileges=true
