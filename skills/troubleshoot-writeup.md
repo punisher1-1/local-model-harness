@@ -50,6 +50,12 @@ Knowledge-base documents cited during the session (title and locator), or "none"
 
 Show the write-up in the chat first. Save it only when the user asks: create a new vault note
 with vault_create_note at `Troubleshooting/YYYY-MM-DD-<short-slug>.md` (lowercase words joined by
-hyphens). If it is longer than one note write allows, create the note with the first sections
-and add the rest with vault_append. Then tell the user the exact path. If the name is taken,
-add a short suffix rather than overwriting.
+hyphens). The date and slug form one file name in the `Troubleshooting` folder, for example
+`Troubleshooting/2026-10-30-dock-second-display-not-detected.md`; never a folder per date. If it
+is longer than one note write allows, create the note with the first sections and add the rest
+with vault_append. Then tell the user the exact path. If the name is taken, add a short suffix
+rather than overwriting. If no note tool is supplied, say so and suggest the same path for the
+user to save it themselves.
+
+In Root cause and Prevention, keep the same rule as the session: a product fact that came from
+general knowledge rather than the conversation or a cited document is marked unverified.

@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mcp_client import call_tool, trusted_url, unavailable
+from mcp_client import call_tool, invalid_arguments, trusted_url, unavailable
 
 COLLECTION = "web"
 NAMES = frozenset({"web_context", "web_search", "web_read"})
@@ -94,8 +94,8 @@ class WebStore:
             return {"error": "tool_not_allowed"}
         try:
             parsed = MODELS[name].model_validate(args).model_dump()
-        except ValidationError:
-            return {"error": "invalid_arguments"}
+        except ValidationError as error:
+            return invalid_arguments(name, MODELS[name], error)
         if name == "web_read" and urlsplit(parsed["url"]).scheme not in {"http", "https"}:
             return {"error": "unsupported_url"}
         try:

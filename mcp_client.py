@@ -34,6 +34,36 @@ async def call_tool(url, name, args, timeout, prefix, headers=None, max_bytes=65
                     return json.loads(text)
 
 
+def invalid_arguments(tool, model, error):
+    """What was wrong with a tool call's arguments, so the model can correct the next call.
+    Names fields and the rule they broke, never the values the model sent."""
+    def name(loc):
+        return ".".join(str(part) for part in loc)[:40] or "arguments"
+    unexpected, missing, wrong = [], [], []
+    for item in error.errors()[:8]:
+        kind, field = item.get("type", ""), name(item.get("loc", ()))
+        if kind == "extra_forbidden":
+            unexpected.append(field)
+        elif kind == "missing":
+            missing.append(field)
+        else:
+            ctx = item.get("ctx") or {}
+            hint = (f"one of {ctx['expected']}" if "expected" in ctx else
+                    f"at most {ctx['max_length']} characters" if "max_length" in ctx else
+                    f"at least {ctx['min_length']} characters" if "min_length" in ctx else
+                    f"{ctx['ge']} or more" if "ge" in ctx else f"{ctx['le']} or less" if "le" in ctx else
+                    kind.replace("_", " "))
+            wrong.append(f"{field} ({str(hint)[:80]})")
+    parts = [f"{tool} takes: {', '.join(model.model_fields) or 'no arguments'}."]
+    if unexpected:
+        parts.append("Remove: " + ", ".join(unexpected) + ".")
+    if missing:
+        parts.append("Missing: " + ", ".join(missing) + ".")
+    if wrong:
+        parts.append("Fix: " + "; ".join(wrong) + ".")
+    return {"error": "invalid_arguments", "next_step": " ".join(parts)}
+
+
 def failure_reason(exc):
     """A short, fixed code for why a call failed, without upstream bodies or secrets."""
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:

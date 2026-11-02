@@ -51,7 +51,7 @@ from backend import BackendPreset, catalog, resolve_profile, runtime_headers, th
 from chat_memory import chat_save_response, RULES as CHAT_MEMORY_RULES
 from client_tools import ToolCall, ToolDefinition, NamedChoice, prepare_history, RULES as CLIENT_TOOL_RULES
 from telemetry import backend_metrics, record_usage, attach_accounting
-from research import ResearchPolicy, NoteStore, research_response, strip_footer
+from research import ResearchPolicy, NoteStore, research_response, strip_footer, run_line
 from identity import IdentityProvider
 from sessions import COOKIE as SESSION_COOKIE, SessionStore, install_sessions
 from compaction import CompactionPolicy, compact_context, context_headers, CONTEXT_RULES, context_notice
@@ -119,6 +119,9 @@ class Profile(BaseModel):
     client_tools: bool = False
     # annotate: list answer numbers that no python_run output printed (see number_check.py).
     verify_numbers: Literal["off", "annotate"] = "off"
+    # Also end answers without tools with the run line (model, profile, harness commit).
+    # Tool answers always carry it.
+    run_line: bool = False
     # Output cap for each MCP tool-loop round that may still call tools (reasoning included).
     mcp_round_output_tokens: int = Field(default=8192, ge=1024, le=65536)
     research: ResearchPolicy | None = None
@@ -578,6 +581,10 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                     del messages[1:next_user]
                 response = await app.state.client.send(app.state.client.build_request("POST", app.state.url + "/chat/completions", json=payload, timeout=deadline), stream=True)
                 response.raise_for_status()
+                # Lines added after the answer: the compaction notice, then the run line.
+                footer = (context_notice(compact_state) if compact_state["status"] == "compacted" else "") + (
+                    ("" if compact_state["status"] == "compacted" else "\n\n---") + run_line(profile.backend_model, body.model)
+                    if profile.run_line else "")
                 headers = {"X-Request-ID": rid, "X-Harness-Profile-SHA256": profile_fingerprint, "X-Harness-Skill-Selection": selected_skill, "X-Harness-MCP": "none",
                            "X-Harness-Dropped-Messages": str(dropped), **recall_headers(recall_state), **context_headers(compact_state), **runtime_headers(profile)}
                 if not body.stream:
@@ -588,11 +595,12 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                     answer.observe(result)
                     answer.require_answer()
                     result["model"] = body.model
-                    if compact_state["status"] == "compacted":
+                    if footer:
                         for choice in result.get("choices", []):
                             msg = choice.get("message", {})
                             if isinstance(msg.get("content"), str):
-                                msg["content"] += context_notice(compact_state)
+                                msg["content"] += footer
+                    if compact_state["status"] == "compacted":
                         result["harness_context"] = compact_state
                     outcome = "completed"
                     return JSONResponse(result, headers=headers)
@@ -605,7 +613,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                 stream_identity = {"id": "chatcmpl-" + rid, "object": "chat.completion.chunk", "created": int(time.time())}
                 def notice_event():
                     return "data: " + json.dumps({**stream_identity, "model": body.model,
-                        "choices": [{"index": 0, "delta": {"content": context_notice(compact_state)}, "finish_reason": None}]}) + "\n\n"
+                        "choices": [{"index": 0, "delta": {"content": footer}, "finish_reason": None}]}) + "\n\n"
                 try:
                     remaining = deadline - (time.monotonic() - started)
                     async with asyncio.timeout(max(0.001, remaining)):
@@ -615,7 +623,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                             data = line[5:].strip()
                             if data == "[DONE]":
                                 answer.require_answer()
-                                if compact_state["status"] == "compacted" and not notice_sent:
+                                if footer and not notice_sent:
                                     yield notice_event()
                                     notice_sent = True
                                 status = "completed"
@@ -633,7 +641,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                                 continue
                             event["model"] = body.model
                             stream_identity.update({k: event[k] for k in ("id", "created", "object") if k in event})
-                            if (compact_state["status"] == "compacted" and not notice_sent
+                            if (footer and not notice_sent
                                     and any(c.get("finish_reason") is not None for c in event.get("choices", []))):
                                 # Some backends include the final text in the stop chunk.
                                 # Deliver that text before our notice, then the stop marker.

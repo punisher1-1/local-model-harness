@@ -274,3 +274,29 @@ def test_unknown_time_zone_is_rejected():
     assert clock_zone(None).key == "UTC"
     with pytest.raises(ValueError, match="HARNESS_TIMEZONE"):
         clock_zone("Mars/Olympus")
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_run_line_on_answers_without_tools(tmp_path, monkeypatch, stream):
+    import research
+    monkeypatch.setattr(research, "HARNESS_VERSION", "8037d73")
+    line = "\n\n---\n*Run: model actual-model · profile local · harness 8037d73.*"
+
+    def backend(request):
+        if stream and request.url.path.endswith("chat/completions"):
+            events = [{"model": "actual-model", "choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]},
+                      {"model": "actual-model", "choices": [{"delta": {}, "finish_reason": "stop"}]}]
+            body = "".join("data: " + json.dumps(e) + "\n\n" for e in events) + "data: [DONE]\n\n"
+            return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+    for enabled in (True, False):
+        client, calls = setup(tmp_path, {"run_line": enabled}, handler=backend)
+        with client:
+            result = ask(client, stream=stream)
+        assert result.status_code == 200
+        if stream:
+            text = "".join(json.loads(l[6:])["choices"][0]["delta"].get("content", "")
+                           for l in result.text.splitlines() if l.startswith("data: {") and '"choices": [{' in l)
+            assert result.text.count("[DONE]") == 1
+        else:
+            text = result.json()["choices"][0]["message"]["content"]
+        assert text == ("Hello" + line if enabled else "Hello")

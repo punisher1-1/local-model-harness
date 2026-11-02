@@ -10,7 +10,7 @@ import os
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
-from mcp_client import call_tool, unavailable
+from mcp_client import call_tool, invalid_arguments, unavailable
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 COLLECTION = "local_ai_vault"
@@ -116,8 +116,8 @@ class VaultStore:
             return {"error":"tool_not_allowed"}
         try:
             parsed = MODELS[name].model_validate(args).model_dump()
-        except ValidationError:
-            return {"error":"invalid_arguments"}
+        except ValidationError as error:
+            return invalid_arguments(name, MODELS[name], error)
         if name=='vault_list_notes':
             prefix = parsed['path_prefix']
             if prefix.startswith('/') or '\\' in prefix or any(not part or part.startswith('.') for part in prefix.split('/')):

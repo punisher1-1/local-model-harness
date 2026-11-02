@@ -14,7 +14,7 @@ import os
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from mcp_client import trusted_url, unavailable
+from mcp_client import invalid_arguments, trusted_url, unavailable
 
 COLLECTION = "knowledge_base"
 NAMES = frozenset({"rag_search"})
@@ -98,8 +98,8 @@ class RagStore:
             return {"error": "tool_not_allowed"}
         try:
             parsed = Search.model_validate(args).model_dump(exclude_none=True)
-        except ValidationError:
-            return {"error": "invalid_arguments"}
+        except ValidationError as error:
+            return invalid_arguments(name, Search, error)
         try:
             data = await self.call(parsed)
         except asyncio.CancelledError:

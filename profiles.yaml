@@ -350,6 +350,8 @@ profiles:
     skills: [troubleshoot-session, troubleshoot-writeup]
     default_skill: troubleshoot-session
     # No memory, so the template carries no personal context into a work deployment.
+    # Put the run line on answers that use no tools too (tool answers always carry it).
+    run_line: true
     chat_memory: false
     compaction:
       enabled: true
