@@ -354,3 +354,42 @@ verify with the product manual", no attachment). Ornith now has web search at LJ
 - **Stopped here on purpose.** More rules for this case would add prompt length that every
   other ticket pays for. The next lever is putting vendor manuals in the LJA `it`
   collection, which needs the planned RAG gateway.
+
+## IT troubleshooting: Intune rename RPC error
+
+Prompt, setup, answer key and scoring: [it-rename-rpc-prompt.md](it-rename-rpc-prompt.md).
+Tests whether the `it-troubleshoot` agent reasons correctly from a pasted log when no
+document covers the case. Same engines as the DisplayLink test.
+
+#### Live case and first re-runs, 2026-11-04 to 2026-11-05
+
+Not controlled: one run each, and tool settings differed. Scored against the five checks.
+
+- **Qwen, live case, 2026-11-04** (harness `2b89261`, knowledge base on, no match): the
+  multi-turn session that solved the case. First reply only:
+  - 1 ✓ (DC over RPC); 3 ✗ (called it "Windows error 5"); 4 ✓ (`nltest /dsgetdc`);
+    5 partly (asked about other machines, not about past fixes).
+  - 2 ✗ on the second reply: "two attempts ~20 s apart, consistent with an RPC timeout",
+    which the log does not show. The claim reached the saved write-up. A later reply listed
+    DNS, firewall and DC causes under Ruled out on reasoning ("1 of 10 failed").
+- **Ornith, LJA, 2026-11-05** (harness `8a44a5b`, no knowledge base exists yet):
+  - 1 ✗: said `Rename-Computer` is local and the failing RPC server was the machine's own,
+    stated as fact; the event-log check it chose followed from that.
+  - 2 ✓ (only the 50 s window); 3 ✓ (0x800706BA); 4 ✓ (`Get-WinEvent`); 5 ✓.
+  - Also: one hypothesis instead of three, "RpcMap" for the endpoint mapper service
+    (`RpcEptMapper`), "Intune Managed Installer" for the Intune Management Extension.
+- **Qwen, home, 2026-11-05** (harness `576f09c`, knowledge base on, vault off, no match):
+  - 1 ✓; 3 ✓ (0x6BA); 5 ✓.
+  - 2 ✗: "attempted twice" in a table headed "facts only", used to argue the DC was
+    unreachable for the whole window.
+  - 4 ✗: `Get-ADDomainController -Identity (Select-Object -Random 1)` is not valid usage and
+    needs RSAT, which workstations normally lack.
+
+Changes after these runs (harness after `576f09c`):
+- The log rule gets a concrete example: a repeated error is not a second attempt; count the
+  line that starts the action; never label an inference as "facts". The two-attempts claim
+  appeared in two Qwen runs, so it meets the bar for a rule.
+- No rule for built-in commands yet: the RSAT command was seen once. Check 4 keeps watching it.
+
+Next: three runs per engine with no tools, then the same with the rename runbook in the LJA
+`it` collection once it exists.

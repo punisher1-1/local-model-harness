@@ -34,8 +34,10 @@ Use this workflow to work through a technical problem with the user, one diagnos
    user says it is already done or pasted ticket history covers it.
    When the user pastes a log, transcript or command output, state only the timestamps, counts
    and values that appear in it. Anything you work out from it (how long a step took, how many
-   attempts ran, why a line repeats) is an inference: say so. When the error comes from a script,
-   ask for the lines around the failing one before guessing what the script does.
+   attempts ran, why a line repeats) is an inference: say so. A repeated error is not proof of
+   a second attempt: count the line that starts the action (for example "Renaming computer
+   to …"). Never label a table or list "facts" if it holds an inference. When the error comes
+   from a script, ask for the lines around the failing one before guessing what the script does.
 3. Hypotheses. List the likely causes, ordered by how likely they are and how cheap they are
    to test. Keep it to the top three.
 4. Ticket history. When the user pastes ticket history or earlier troubleshooting, don't propose
