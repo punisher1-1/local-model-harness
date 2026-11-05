@@ -391,5 +391,45 @@ Changes after these runs (harness after `576f09c`):
   appeared in two Qwen runs, so it meets the bar for a rule.
 - No rule for built-in commands yet: the RSAT command was seen once. Check 4 keeps watching it.
 
+#### After the repeated-line rule, 2026-11-05
+
+- **Ornith, LJA** (public snapshot `9763180`, built from private `2b4d188`; no knowledge
+  base exists yet; real log, not the sanitized fixture). One run:
+  - 1 ✗: again said the failure was in the local RPC stack, after explaining correctly that
+    in AD the endpoint mapper on the DC may be unreachable. Its first check,
+    `Get-Service RpcSs`, cannot separate hypotheses: Windows cannot run PowerShell with that
+    service stopped.
+  - 2 ✓ (no attempt count or per-attempt timing); 4 ✓ (`Get-Service`, `Get-WinEvent`).
+  - 3 ✗: 0x800706BA, but glossed as "(53)"; 0x6BA is 1722.
+  - 5 partly: asked what changed and whether one machine or several, not what fixed it before.
+  - Also: called the endpoint mapper `RpcSs` (that is the RPC service; the mapper is
+    `RpcEptMapper`; last run it said "RpcMap"), and gave two checks in one turn. Its event
+    query (5719) would, if it hit, point at the DC rather than the local stack.
+
+The local-RPC belief is now 2 of 2 Ornith runs, with the rules in place both times. As in
+the DisplayLink test, this is a product belief, not a behavior, so no rule is added: the
+lever is the rename runbook in the LJA `it` collection, which states that the rename
+contacts a domain controller.
+
+- **Qwen, home** (harness `2b4d188`, the same code as `9763180`; knowledge base on, vault
+  off; the search returned only unrelated lab docs, which it said did not apply). One run:
+  - 1 ✓ (DC over port 135 and a dynamic port).
+  - 2 mostly ✓: labeled the repeated error "inference: the script likely retries once", but
+    inside a table headed "observed facts".
+  - 3 ✗: "`ERROR_RPC_SERVER_UNAVAILABLE`, 1225". The error is 1722
+    (`RPC_S_SERVER_UNAVAILABLE`); 1225 is "connection refused".
+  - 4 ✓ (`Test-NetConnection -Port 135`), with one wrong switch: `nltest /ds_get_dc:` for
+    `/dsgetdc:`.
+  - 5 partly: asked about scope and recent changes, not what fixed it before. Asked whether
+    the two names in the log were expected instead of assuming, which is the right handling.
+
+Changes after these runs:
+- Error numbers: wrong in 3 of 5 runs across both engines, a different number each time
+  ("error 5", "(53)", 1225). This is a behavior (stating a number the model does not know),
+  not a product belief, so it gets a rule: quote the error text; give a number only if it is
+  in the user's output or a cited source.
+- The "has this happened before" intake question was asked only partly in 3 of 3 runs since
+  it was added. Watching it rather than adding wording.
+
 Next: three runs per engine with no tools, then the same with the rename runbook in the LJA
 `it` collection once it exists.
