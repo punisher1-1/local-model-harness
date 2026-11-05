@@ -397,7 +397,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
         return {"kind": p.kind, "actor_id": p.actor_id, "profiles": sorted(p.profiles),
                 "tools": sorted(p.tools), "collections": sorted(p.collections),
                 "expires_at": p.expires_at,
-                "client_tools": p.client_tools, "backend_metrics": p.backend_metrics,
+                "client_tools": p.client_tools, "backend_metrics": p.backend_metrics, "accounts_admin": p.accounts_admin,
                 "memory_scopes": allowed_scopes(app.state.memory.config if app.state.memory else None, p),
                 "memory_permissions": sorted(memory_permissions(app.state.memory.config if app.state.memory else None, p))}
 

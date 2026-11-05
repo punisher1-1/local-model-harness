@@ -90,6 +90,18 @@ Failed sign-ins return to `/chat/?auth_error=<code>`, which the page explains:
 For a work deployment, point `issuer`, `client_id` and `roles_claim` at the company's
 provider (Entra ID app roles: `roles_claim: roles`); nothing else changes.
 
+### Seeing who has an account (2026-11-03)
+
+Add `accounts_admin: true` to a group's grant (only `harness_admin` in the example) to
+get **Settings › Accounts** in `/chat/`, backed by `GET /v1/admin/accounts`. It lists
+everyone who has signed in through the identity provider, with their groups as of their
+last sign-in, and whether they are *active now* (a request in the last five minutes),
+*signed in* but idle, or *signed out*. Browser sessions signed in with the access key
+are counted but name no one. Sessions live in harness memory, so a restart shows
+everyone as signed out. The grant is off by default; the service key never has it,
+and each read is logged as an `accounts.list` authorization event. The list is read-only:
+to remove someone, take them out of the group in Pocket ID (it applies at their next sign-in).
+
 ## JWT mode (opt-in, locally configured public keys)
 
 The verifier accepts only **RS256** with a configured RSA public key of at least

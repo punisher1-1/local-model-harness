@@ -386,3 +386,33 @@ def install_conversations(app, auth):
         await run_in_threadpool(write)
 
     app.state.record_account = record_account
+
+    @app.get("/v1/admin/accounts", dependencies=[Depends(auth)])
+    def accounts(request: Request):
+        """Everyone who has signed in, and whether they have a browser session now. Sessions
+        live in process memory, so a restart shows everyone as signed out."""
+        p = request.state.principal
+        p.ensure_current()
+        app.state.identity.audit(p, "accounts.list", "accounts", p.accounts_admin)
+        if not p.accounts_admin:
+            raise HTTPException(403, "Account list access denied")
+        if not path:
+            raise HTTPException(503, "Chat history storage is not configured")
+        with database(path) as db:
+            rows = db.execute("SELECT actor_id,name,email,groups,first_seen,last_seen FROM accounts ORDER BY last_seen DESC").fetchall()
+        live = app.state.sessions.by_actor()
+        grants = app.state.identity.config.role_grants
+        data = []
+        for row in rows:
+            count, last = live.get(row["actor_id"], (0, None))
+            groups = json.loads(row["groups"])
+            data.append({"name": row["name"], "email": row["email"], "groups": groups,
+                         # Group membership as of the last sign-in; a removed group still shows until then.
+                         "has_access": any(g in grants and grants[g].profiles for g in groups), "first_seen": row["first_seen"],
+                         "last_sign_in": row["last_seen"], "sessions": count,
+                         "last_active": int(last) if last else None, "you": row["actor_id"] == p.actor_id})
+        # Signed in first, most recently active first; then by last sign-in (the query order).
+        data.sort(key=lambda r: -(r["last_active"] or 0))
+        keys, last = live.get("service_key", (0, None))
+        return response({"data": data, "key_sessions": keys, "key_last_active": int(last) if last else None,
+                         "idle_timeout_seconds": int(app.state.sessions.idle)})

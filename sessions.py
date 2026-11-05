@@ -78,6 +78,18 @@ class SessionStore:
         session.last_seen = now
         return session
 
+    def by_actor(self):
+        """Live browser sessions per signed-in account: actor_id -> (count, last activity).
+        Key sessions are counted under their own kind, since they name no person."""
+        now = time.time()
+        self.items = {k: s for k, s in self.items.items() if self.live(s, now)}
+        active = {}
+        for s in self.items.values():
+            key = s.principal.actor_id if s.principal.kind == "jwt_subject" else s.principal.kind
+            count, last = active.get(key, (0, 0.0))
+            active[key] = (count + 1, max(last, s.last_seen))
+        return active
+
     def delete(self, token):
         if isinstance(token, str):
             self.items.pop(self.key(token), None)

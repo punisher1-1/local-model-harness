@@ -63,5 +63,13 @@
 .memory-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .memory-row { padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
 .memory-text { margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
-.memory-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.memory-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
 .memory-meta .skill-badge { margin-left: 0; }
+.account-row { display: flex; flex-direction: column; gap: 4px; }
+.account-name { display: flex; align-items: center; gap: 8px; font-size: 14px; overflow-wrap: anywhere; }
+.account-name .skill-badge { margin-left: 0; }
+.account-email { margin: 0; font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.account-warn { border-color: var(--border-color); background: transparent; color: var(--text-secondary); }
+.presence { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--text-secondary); }
+.presence-active { background: #22a55b; border-color: #22a55b; }
+.presence-idle { background: #d9a21b; border-color: #d9a21b; }

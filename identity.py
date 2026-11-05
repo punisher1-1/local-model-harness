@@ -32,6 +32,8 @@ class Grant(BaseModel):
     collections: list[Literal["demo_notes", "local_ai_vault", "code_sandbox", "web", "knowledge_base"]] = Field(default_factory=list)
     client_tools: bool = False
     backend_metrics: bool = False
+    # See every account that has signed in and whether it is signed in now (/v1/admin/accounts).
+    accounts_admin: bool = False
     memory_scopes: list[str] = Field(default_factory=lambda: ["legacy"])
     memory_permissions: list[Literal["memory.read", "memory.write", "memory.delete"]] = Field(default_factory=list)
 
@@ -123,6 +125,7 @@ class Principal:
     memory_scopes: frozenset[str] = frozenset({"legacy"})
     # Configured groups this identity belongs to (role_grants keys), for skills shared with a group.
     groups: frozenset[str] = frozenset()
+    accounts_admin: bool = False
 
     def ensure_current(self):
         if self.expires_at is not None and time.time() >= self.expires_at:
@@ -251,7 +254,7 @@ class IdentityProvider:
             raise ValueError("Invalid subject")
         profiles, tools, collections, memory_permissions = set(), set(), set(), set()
         memory_scopes = set()
-        client_tools = backend_metrics = False
+        client_tools = backend_metrics = accounts_admin = False
         groups = set()
         for role in self.roles_of(claims):
             grant = self.config.role_grants.get(role)
@@ -259,6 +262,7 @@ class IdentityProvider:
                 groups.add(role)
                 client_tools |= grant.client_tools
                 backend_metrics |= grant.backend_metrics
+                accounts_admin |= grant.accounts_admin
                 profiles.update(grant.profiles)
                 tools.update(grant.tools)
                 collections.update(grant.collections)
@@ -266,7 +270,7 @@ class IdentityProvider:
                 memory_scopes.update(grant.memory_scopes)
         actor = hashlib.sha256((claims["iss"] + "\0" + claims["sub"]).encode()).hexdigest()
         return Principal("jwt_subject", actor, frozenset(profiles), frozenset(tools), frozenset(collections), expires_at,
-                         frozenset(memory_permissions), client_tools, backend_metrics, frozenset(memory_scopes), frozenset(groups))
+                         frozenset(memory_permissions), client_tools, backend_metrics, frozenset(memory_scopes), frozenset(groups), accounts_admin)
 
     def audit(self, principal, action, resource, allowed, request_id=None):
         log.info(json.dumps({"event": "authorization", "actor_id": principal.actor_id,

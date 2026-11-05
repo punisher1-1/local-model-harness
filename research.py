@@ -22,6 +22,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 log = logging.getLogger("uvicorn.error")
+# Tools whose results put private notes or knowledge-base passages into the request.
+PRIVATE_READS = frozenset({"vault_search", "vault_read_note", "vault_list_notes", "rag_search"})
 # Tools whose arguments carry a note body or a script, not a short query.
 LARGE_ARGUMENT_TOOLS = frozenset({"vault_create_note", "vault_append", "python_run"})
 
@@ -311,6 +313,14 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
         catalog_sha256 = store.sha256
         activity_label = "Demo research activity: "
     vault = stores.get("vault")
+    web = stores.get("web")
+    if web is not None:
+        from web_mcp import own_text, user_urls
+        web.user_urls.update(user_urls(payload["messages"]))
+        latest = next((m for m in reversed(payload["messages"]) if m.get("role") == "user"), {})
+        if vault is not None and web.policy == "home" and isinstance(latest.get("content"), str):
+            from vault_mcp import SAVE_REQUEST
+            vault.save_requested = bool(SAVE_REQUEST.search(own_text(latest["content"])))
     round_cap = profile.mcp_round_output_tokens if is_mcp else policy.max_round_output_tokens
 
     def collection(name):
@@ -523,6 +533,14 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                         result_data = store.execute(name, call["_validated_arguments"])
                     elif name in owner:
                         result_data = await stores[owner[name].id].execute(name, call["_validated_arguments"])
+                        # Request-wide flags, enforced in the stores rather than by prompt: once private
+                        # notes or passages are in context web_read loses user-written URLs (strict), and
+                        # once web text is in context vault writes need the user's request or confirmation.
+                        if web is not None and name in PRIVATE_READS and not result_data.get("error"):
+                            web.tainted = True
+                        if vault is not None and owner[name].id == "web":
+                            vault.after_web = True
+                            vault.web_sources = web.sources
                     else:
                         result_data = {"error": "tool_not_allowed"}
                     calls_used += 1

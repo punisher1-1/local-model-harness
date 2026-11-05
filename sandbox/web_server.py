@@ -37,6 +37,8 @@ DAILY_SEARCH_LIMIT = int(os.getenv("WEB_DAILY_SEARCH_LIMIT", "300"))
 MAX_CONCURRENT = int(os.getenv("WEB_MAX_CONCURRENT", "4"))
 MAX_PAGE_BYTES = 2_000_000
 MAX_TEXT_CHARS = 16000
+# Links returned with a page so the harness can let the model follow them (home policy).
+MAX_LINKS = 50
 # web_context: Brave's token budget is approximate, so characters are capped here too.
 CONTEXT_URLS = 8
 CONTEXT_SNIPPET_CHARS = 4000
@@ -159,9 +161,13 @@ class TextExtractor(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.parts, self.title, self.skip, self.in_title = [], "", 0, False
+        self.links, self.anchor = [], None
 
     def handle_starttag(self, tag, attrs):
-        if tag == "title":
+        if tag == "a" and not self.skip:
+            href = dict(attrs).get("href")
+            self.anchor = [href, ""] if href else None
+        elif tag == "title":
             self.in_title = True
         elif tag in self.SKIP:
             self.skip += 1
@@ -169,7 +175,10 @@ class TextExtractor(HTMLParser):
             self.parts.append("\n")
 
     def handle_endtag(self, tag):
-        if tag == "title":
+        if tag == "a" and self.anchor:
+            self.links.append((self.anchor[0], self.anchor[1]))
+            self.anchor = None
+        elif tag == "title":
             self.in_title = False
         elif tag in self.SKIP and self.skip:
             self.skip -= 1
@@ -181,17 +190,44 @@ class TextExtractor(HTMLParser):
             self.title += data
         elif not self.skip:
             self.parts.append(data)
+            if self.anchor:
+                self.anchor[1] += data
 
     def text(self):
         lines = (re.sub(r"[ \t ]+", " ", line).strip() for line in "".join(self.parts).splitlines())
         return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
-def html_to_text(html):
+def html_to_page(html):
+    """Title, text and the (href, anchor text) pairs of links outside skipped elements."""
     parser = TextExtractor()
     parser.feed(html)
     parser.close()
-    return clean(parser.title, 300), parser.text()
+    return clean(parser.title, 300), parser.text(), parser.links
+
+
+def html_to_text(html):
+    title, text, _ = html_to_page(html)
+    return title, text
+
+
+def page_links(base, pairs):
+    """Absolute http(s) links without fragments, first MAX_LINKS distinct ones in page order."""
+    links, seen = [], set()
+    for href, text in pairs:
+        try:
+            parts = urlsplit(urljoin(base, href.strip()))
+        except ValueError:
+            continue
+        if parts.scheme not in {"http", "https"} or not parts.hostname or parts.username or parts.password:
+            continue
+        url = parts._replace(fragment="").geturl()
+        if url not in seen and len(url) <= 2048:
+            seen.add(url)
+            links.append({"text": clean(text, 120), "url": url})
+            if len(links) == MAX_LINKS:
+                break
+    return links
 
 
 async def read_page(url, client, resolve=socket.getaddrinfo):
@@ -213,10 +249,10 @@ async def read_page(url, client, resolve=socket.getaddrinfo):
                     break
             raw = bytes(body[:MAX_PAGE_BYTES]).decode(response.encoding or "utf-8", errors="replace")
         if kind in ("text/html", "application/xhtml+xml") or (not kind and "<html" in raw[:2000].lower()):
-            title, text = html_to_text(raw)
+            title, text, pairs = html_to_page(raw)
         else:
-            title, text = "", raw.strip()
-        return {"source": "web", "url": url[:2048], "title": title, "text": text[:MAX_TEXT_CHARS],
+            title, text, pairs = "", raw.strip(), []
+        return {"source": "web", "url": url[:2048], "title": title, "text": text[:MAX_TEXT_CHARS], "links": page_links(url, pairs),
                 "truncated": len(text) > MAX_TEXT_CHARS or len(body) > MAX_PAGE_BYTES}
     return {"error": "too_many_redirects"}
 

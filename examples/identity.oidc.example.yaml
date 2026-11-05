@@ -23,6 +23,8 @@ role_grants:
     collections: [local_ai_vault, code_sandbox, web, knowledge_base]
     client_tools: true
     backend_metrics: true
+    # Settings > Accounts: everyone who has signed in, and who is signed in now.
+    accounts_admin: true
     # Every memory scope your profiles use: legacy (existing memories), plus home and work
     # for local-home/local-work. Each must be configured in the memory config.
     memory_scopes: [legacy, home, work]

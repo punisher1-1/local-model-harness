@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {identity as getIdentity, currentSession} from '../client';
 import SkillsPanel from './SkillsPanel';
 import MemoryPanel from './MemoryPanel';
+import AccountsPanel from './AccountsPanel';
 import '../styles/SettingsModal.css';
 import '../styles/ProjectModal.css';
 
@@ -47,6 +48,7 @@ function SettingsModal({catalog, userSkills, shareGroups, onSkillsChanged, onDis
             <button role="tab" aria-selected={tab === 'profiles'} className={`tab-btn ${tab === 'profiles' ? 'active' : ''}`} onClick={() => setTab('profiles')}>Profiles</button>
             <button role="tab" aria-selected={tab === 'skills'} className={`tab-btn ${tab === 'skills' ? 'active' : ''}`} onClick={() => setTab('skills')}>Skills</button>
             {memory && <button role="tab" aria-selected={tab === 'memory'} className={`tab-btn ${tab === 'memory' ? 'active' : ''}`} onClick={() => setTab('memory')}>Memory</button>}
+            {who?.accounts_admin && <button role="tab" aria-selected={tab === 'accounts'} className={`tab-btn ${tab === 'accounts' ? 'active' : ''}`} onClick={() => setTab('accounts')}>Accounts</button>}
           </div>
 
           <div className="settings-content">
@@ -72,6 +74,8 @@ function SettingsModal({catalog, userSkills, shareGroups, onSkillsChanged, onDis
             )}
 
             {tab === 'memory' && memory && <MemoryPanel scopes={who.memory_scopes} permissions={who.memory_permissions}/>}
+
+            {tab === 'accounts' && who?.accounts_admin && <AccountsPanel/>}
 
             {tab === 'skills' && <SkillsPanel skills={userSkills} shareGroups={shareGroups} onChanged={onSkillsChanged}/>}
 

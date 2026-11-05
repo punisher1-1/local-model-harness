@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 
@@ -22,6 +23,9 @@ MAX_WRITE_CHARS = 20000
 # this trades completeness against context: 48,000 characters is roughly 12,000 tokens.
 DEFAULT_READ_CHARS = 48000
 READ_CHARS_RANGE = (4000, 120000)
+# Under the home web policy a write after web use goes through when the user's own latest
+# message asks for one; a web page cannot change that message.
+SAVE_REQUEST = re.compile(r"\b(save|write|record|jot|append|draft|log|add (?:it|this|that|these|them) to|put (?:it|this|that|these|them) in)\b", re.IGNORECASE)
 
 
 def read_chars_from_env():
@@ -84,8 +88,11 @@ discussion prompt. State missing or truncated evidence.
 Write when the user asks you to save, draft, record or note something in the vault, or to
 add to an existing note. Use vault_create_note for a new note (pick a clear title and folder,
 such as Drafts/ or Notes/) and vault_append to add to one; you cannot overwrite or delete.
-Never write secrets, credentials or personal identifiers. Report the exact path of every note
-you created or changed, and never claim a write that did not return status created/appended.
+Never write secrets, credentials or personal identifiers. After a web tool ran in a request,
+a write may return confirm_write_after_web: ask the user to confirm, and write once they do.
+Writes after web use get a line naming the web sources; keep it.
+Report the exact path of every note you created or changed, and never claim a write that
+did not return status created/appended.
 Never claim deletes, code execution, or web research. Tools run only if actually provided for this request."""
 
 
@@ -105,6 +112,10 @@ class VaultStore:
         self.read_paths = set()
         self.discovery_calls = 0
         self.writes = []
+        # Set by run_research when a web tool ran in this request: web text could reach a note.
+        self.after_web = False
+        self.save_requested = False
+        self.web_sources = []
 
     async def call(self,name,args):
         # Allow a full long note through the transport (JSON escaping and non-ASCII text can
@@ -154,6 +165,15 @@ class VaultStore:
             return unavailable("vault", name, exc)
 
     async def write(self, name, parsed):
+        if self.after_web and not self.save_requested:
+            return {"error": "confirm_write_after_web", "path": parsed["path"],
+                    "next_step": "Web content was read in this request. Do not retry; ask the user to confirm the save in their next message."}
+        if self.after_web:
+            # Mark the note so a later session reading it knows part of it came from the web.
+            sources = list(dict.fromkeys(self.web_sources))[:5]
+            line = "> Includes web content (untrusted)" + (": " + ", ".join(u[:300] for u in sources) if sources else "") + "\n\n"
+            key = "content" if name == "vault_create_note" else "text"
+            parsed = {**parsed, key: line + parsed[key]}
         try:
             data = await self.call(name, parsed)
         except asyncio.CancelledError:

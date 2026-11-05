@@ -53,6 +53,18 @@ def test_html_becomes_readable_text():
     assert text == "Install\n\nFirst step.\n\nSecond step."
 
 
+def test_page_links_are_absolute_distinct_and_capped():
+    html = ('<p><a href="/docs#install">Install <b>guide</b></a> <a href="https://other.example/x">x</a>'
+            '<a href="/docs">again</a><a href="mailto:a@b.c">mail</a><a href="javascript:evil()">js</a>'
+            '<a href="https://u:p@evil.example/">creds</a><a>no href</a></p><nav><a href="/menu">menu</a></nav>')
+    _, text, pairs = web.html_to_page(html)
+    assert "Install guide" in text
+    assert web.page_links("https://site.example/a/b", pairs) == [
+        {"text": "Install guide", "url": "https://site.example/docs"}, {"text": "x", "url": "https://other.example/x"}]
+    many = [(f"/p{i}", str(i)) for i in range(80)]
+    assert len(web.page_links("https://site.example/", many)) == web.MAX_LINKS
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -150,7 +162,7 @@ def test_reading_follows_safe_redirects_and_refuses_private_ones():
         async with mock_client(handler) as client:
             return await web.read_page(url, client, resolve)
     page = run(go("http://example.com/"))
-    assert page == {"source": "web", "url": "https://docs.example.com/guide", "title": "Guide", "text": "Hello from docs.", "truncated": False}
+    assert page == {"source": "web", "url": "https://docs.example.com/guide", "title": "Guide", "text": "Hello from docs.", "links": [], "truncated": False}
     with pytest.raises(web.Refused, match="private_address"):
         run(go("https://evil.example/"))
 

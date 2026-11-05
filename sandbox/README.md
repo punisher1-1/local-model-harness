@@ -165,12 +165,17 @@ systemctl restart harness-sandbox
   plan, and counts against the same daily limit as `web_search`.
 - `web_search` queries the Brave Search API and returns up to 8 results, each with a title,
   URL, snippet, up to three extra snippets and its age.
-- `web_read` fetches one public page and returns up to 16,000 characters of readable text.
+- `web_read` fetches one public page and returns up to 16,000 characters of readable text,
+  plus up to 50 of its links (absolute http(s), outside navigation and footers). The harness
+  shows the links to the model only under `HARNESS_WEB_POLICY=home`.
 
 The Brave key lives only in `/etc/harness-web.env`. The server runs as its own `webtools`
 user with no Docker access and no capabilities, and the systemd unit sandboxes it.
 
 Guards on `web_read`:
+- The harness adapter (`web_mcp.py`) only asks for URLs that a search returned in the same
+  request or that the user wrote; it refuses others before they reach this server
+  ([ADR-005](../docs/ADR-005-web-read-seen-urls.md)).
 - Only http(s) URLs on the default ports, with no credentials in the URL, are accepted.
 - Every address a host resolves to must be public, and that check is repeated after each
   redirect, up to 5. This blocks <lab subnet> and also your other LANs (for example

@@ -219,6 +219,13 @@ export function groupLabel(group) {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+// Every account that has signed in, with its live sessions. Admin grant only.
+export async function adminAccounts() {
+  const response = await request('/v1/admin/accounts');
+  if (!response.ok) throw new Error(await failure(response, `Cannot load accounts (HTTP ${response.status}).`));
+  return response.json();
+}
+
 // The signed-in identity's memories in one scope (home, work, legacy…). The harness
 // checks the scope and the memory permission on every call.
 export async function memoryRequest(scope, path='', method='GET', body) {
