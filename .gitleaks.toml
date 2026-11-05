@@ -1,0 +1,19 @@
+# Gitleaks settings. Picked up automatically from the repository root, both by the
+# GitHub workflow (.github/workflows/gitleaks.yml) and by a local `gitleaks git .`.
+#
+# Keep all of gitleaks' built-in rules and add an allowlist of known fake values.
+# These match the value itself, so they work in this repository and in the public
+# snapshot, whose commit IDs differ (.gitleaksignore entries are tied to commit IDs).
+# List exact values only; never allow a whole file or rule.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake values used by the tests and docs, not secrets"
+regexes = [
+  # API key used only by the test suite (tests/test_app.py, tests/test_oidc.py)
+  '''^test-key-for-harness-1234567890$''',
+  # Example idempotency_key UUID in MEMORY.md
+  '''^db0664c8-c612-4a01-81c0-c82036b58747$''',
+]
