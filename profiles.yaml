@@ -341,9 +341,9 @@ profiles:
     client_tools: true
     request_timeout_seconds: 600
 
-  it-troubleshoot:
+  it-troubleshoot: &it_troubleshoot
     # IT troubleshooting agent (template for work deployments): guided one-step-per-turn
-    # sessions grounded in the RAG "it" collection, then a write-up saved to the vault.
+    # sessions grounded in the knowledge base, then a write-up saved to the vault.
     mcp_servers: [rag, vault, web, code]
     # Web search uses paid credits, so chats start with only the knowledge base and vault.
     mcp_default: [rag, vault]

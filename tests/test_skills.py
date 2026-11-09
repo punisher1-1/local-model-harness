@@ -110,4 +110,20 @@ def test_it_troubleshoot_profile_loads_with_its_skills_and_prompt():
     assert p.mcp_default == ['rag', 'vault'] and p.chat_memory is False
     assert (ROOT / p.system_prompt_file).read_text().startswith('You are an IT troubleshooting assistant.')
     text = load_skills(ROOT, p)
-    assert 'Troubleshooting/YYYY-MM-DD-<short-slug>.md' in text and 'one diagnostic step per turn' in text
+    assert 'Troubleshooting/YYYY-MM-DD-<short-slug>.md' in text and 'one step per turn, only steps they can perform' in text
+
+
+def test_it_tier_profile_example_extends_it_troubleshoot():
+    import yaml
+    from app import Settings
+    text = (ROOT / 'profiles.yaml').read_text() + '\n' + (ROOT / 'examples/it-tier-profiles.example.yaml').read_text()
+    profiles = Settings.model_validate(yaml.safe_load(text)).profiles
+    base = profiles['it-troubleshoot']
+    tiers = ['it-helpdesk', 'it-desktop', 'it-appsupport']
+    for name in tiers:
+        p = profiles[name]
+        assert (p.system_prompt_file, p.skills, p.default_skill, p.mcp_servers) == \
+            (base.system_prompt_file, base.skills, base.default_skill, base.mcp_servers)
+        assert p.rules[:len(base.rules)] == base.rules
+        extra = p.rules[len(base.rules):]
+        assert any(r.startswith('Technician access') for r in extra) and any(r.startswith('Next level') for r in extra)

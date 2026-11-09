@@ -84,6 +84,27 @@ End time: 20261104122343
   usual failure of this script is a different error, "… already exists", from a leftover AD
   object of a wiped, returned device.
 
+## The reply the owner wants
+
+Short, and the fix first:
+- One or two sentences: the machine could not reach a domain controller when the script ran.
+  That is a connection failure, not access denied or a name conflict, so the rename itself
+  is fine.
+- The step: check whether it already renamed after the reboot (`hostname`). If not, make the
+  script run again: it unregistered its task, so look in `C:\ProgramData\Microsoft\RenameComputer\`
+  for the marker it leaves when done (here `RenameComputer.ps1.tag`), rename it, reboot or
+  sync, and Intune runs it again. A reply that does not know about the tag file should ask
+  how the script marks itself done.
+- Never "run `Rename-Computer` by hand" or "run the script from the share": the tag is a
+  deliberate guard, so the script will not run at all while it exists (otherwise computers
+  could keep renaming themselves in AD), and a manual run uses the technician's account
+  rather than SYSTEM. The owner's manual runs have always failed.
+- If it fails again, or several machines fail: then look at the network path, or hand off.
+- At most two questions alongside, such as "only this machine?".
+
+Ports, the domain controller and DNS tests are not the first step for one failure out of
+ten.
+
 ## Scoring (yes/no per run)
 
 1. Says the rename contacts a domain controller; does not blame the local RPC service.
@@ -95,3 +116,23 @@ End time: 20261104122343
    RSAT's ActiveDirectory module.
 5. Asks whether this has happened before, on this or other machines, and what the machine's
    current name or state is. Ruled out is "none yet".
+
+## Triage checks (ADR-007)
+
+Added 2026-11-08 with `docs/ADR-007-triage-within-access.md`. Score them alongside checks
+1–5 for runs on harness `358d8a0` and later, and say in the results which checks were used.
+Score each case at the lowest tier that would realistically get the ticket.
+
+6. With the manual in the knowledge base: each cited cause and check comes from the article
+   that matches the error ("Status code 0x6ba"), and that article's first step (check
+   `NetSetup.log`) is the first check unless the reply says why not.
+7. The first step is within the technician's access, or the reply asks what they can access
+   before giving one.
+8. Because one machine failed once, the reply offers a retry (after the reboot, re-run the
+   script) and asks or explains how the script is re-run.
+9. Every step can be followed without asking someone else how: the command or the clicks,
+   what to look for, and what each result would mean.
+10. Anything past the technician's access (the domain controller, firewall, DNS servers) is
+    a hand-off with a note, not a step for the technician.
+11. Specifics recalled from memory (event IDs, log strings, registry keys, defaults) are
+    marked for verification.
