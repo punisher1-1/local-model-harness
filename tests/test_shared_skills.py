@@ -36,7 +36,7 @@ def test_shared_skill_is_listed_read_only_and_used_with_live_edits(lab):  # noqa
         sign_in_as(wife, provider, "user-wife", "Beth", "harness-family")
         [item] = wife.get("/v1/skills", headers=UI).json()["data"]
         assert item == {"id": SID, "name": SKILL["name"], "summary": "Answer in 3 short paragraphs.",
-                        "updated_at": item["updated_at"], "shared": True, "shared_by": "Alice"}
+                        "updated_at": item["updated_at"], "profiles": [], "shared": True, "shared_by": "Alice"}
         assert wife.get("/v1/skills/" + SID, headers=UI).json()["content"] == SKILL["content"]
 
         assert ask_with(wife, SID).status_code == 200

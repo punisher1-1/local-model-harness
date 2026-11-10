@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {newId} from '../client';
+import {newId, availableWorkflow} from '../client';
 import WorkflowSelect from './WorkflowSelect';
 import '../styles/SettingsModal.css';
 import '../styles/ProjectModal.css';
@@ -27,7 +27,7 @@ function ProjectModal({project, catalog, userSkills, defaultProfile, onSave, onD
   // Switching profile resets the workflow and tools to that profile's own defaults.
   function chooseProfile(id) {
     const next = catalog.find(p => p.id === id);
-    setProfileId(id); setSkill(s => s.startsWith('user:') ? s : '');
+    setProfileId(id); setSkill(s => s.startsWith('user:') ? availableWorkflow(s, next, userSkills) : '');
     setMcp((next?.mcp_servers || []).filter(s => s.default).map(s => s.id));
   }
 

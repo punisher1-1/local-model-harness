@@ -9,8 +9,8 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: '
 // harness, and offered under "My skills" in each chat's and project's Workflow menu. Skills
 // another account shares with one of the user's groups are listed read-only; edits by their
 // owner apply on the next request.
-function SkillsPanel({skills, shareGroups = [], onChanged}) {
-  const [editing, setEditing] = useState(null); // null: list; {id?, name, content, shared_groups}: editor
+function SkillsPanel({skills, shareGroups = [], profiles = [], onChanged}) {
+  const [editing, setEditing] = useState(null); // null: list; {id?, name, content, shared_groups, profiles}: editor
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const file = useRef(null);
@@ -18,8 +18,8 @@ function SkillsPanel({skills, shareGroups = [], onChanged}) {
 
   async function open(skill) {
     setError('');
-    if (!skill) { setEditing({name: '', content: '', shared_groups: []}); return; }
-    try { setEditing({shared_groups: [], ...await skillRequest(`/${skill.id}`)}); } catch (e) { setError(e.message); }
+    if (!skill) { setEditing({name: '', content: '', shared_groups: [], profiles: []}); return; }
+    try { setEditing({shared_groups: [], profiles: [], ...await skillRequest(`/${skill.id}`)}); } catch (e) { setError(e.message); }
   }
 
   async function importFile(e) {
@@ -38,13 +38,22 @@ function SkillsPanel({skills, shareGroups = [], onChanged}) {
     setEditing({...editing, shared_groups: groups});
   }
 
+  function toggleProfile(id) {
+    const list = editing.profiles.includes(id) ? editing.profiles.filter(p => p !== id) : [...editing.profiles, id];
+    setEditing({...editing, profiles: list});
+  }
+
+  // "local-assistant, it-troubleshoot", or nothing when the skill shows in every profile.
+  const profileNote = s => s.profiles?.length ? `Only in ${s.profiles.join(', ')}` : '';
+
   async function save(e) {
     e.preventDefault();
     setSaving(true); setError('');
     try {
       const saved = await skillRequest(`/${editing.id || newId()}`, 'PUT',
-        {name: editing.name.trim(), content: editing.content, shared_groups: editing.shared_groups.filter(g => shareGroups.includes(g))});
-      const row = {id: saved.id, name: saved.name, summary: saved.summary, updated_at: saved.updated_at, shared_groups: saved.shared_groups};
+        {name: editing.name.trim(), content: editing.content, shared_groups: editing.shared_groups.filter(g => shareGroups.includes(g)),
+          profiles: editing.profiles.filter(p => profiles.includes(p))});
+      const row = {id: saved.id, name: saved.name, summary: saved.summary, updated_at: saved.updated_at, shared_groups: saved.shared_groups, profiles: saved.profiles};
       onChanged([...skills.filter(s => s.id !== saved.id), row].sort(byName));
       setEditing(null);
     } catch (err) { setError(err.message); } finally { setSaving(false); }
@@ -70,7 +79,7 @@ function SkillsPanel({skills, shareGroups = [], onChanged}) {
           <span className="spacer"></span>
           <button type="button" className="btn secondary-btn" onClick={() => { setEditing(null); setError(''); }}>Close</button>
           <button type="button" className="btn primary-btn"
-            onClick={() => setEditing({name: `${editing.name} (copy)`.slice(0, 80), content: editing.content, shared_groups: []})}>Duplicate</button>
+            onClick={() => setEditing({name: `${editing.name} (copy)`.slice(0, 80), content: editing.content, shared_groups: [], profiles: []})}>Duplicate</button>
         </div>
       </section>
     );
@@ -95,6 +104,18 @@ function SkillsPanel({skills, shareGroups = [], onChanged}) {
           <input ref={file} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden onChange={importFile}/>
           <span className={`char-count ${length > LIMIT * 0.9 ? 'near' : ''}`}>{length.toLocaleString()} / {LIMIT.toLocaleString()}</span>
         </div>
+        {profiles.length > 1 && (
+          <fieldset className="skill-share">
+            <legend>Show in profiles</legend>
+            {profiles.map(id => (
+              <label key={id} className="skill-share-option">
+                <input type="checkbox" checked={editing.profiles.includes(id)} onChange={() => toggleProfile(id)}/>
+                {id}
+              </label>
+            ))}
+            <p className="setting-desc">{editing.profiles.length ? 'Offered only in chats on the ticked profiles.' : 'None ticked: offered in every profile.'}</p>
+          </fieldset>
+        )}
         {shareGroups.length > 0 && (
           <fieldset className="skill-share">
             <legend>Share with</legend>
@@ -133,6 +154,7 @@ function SkillsPanel({skills, shareGroups = [], onChanged}) {
             <button className="skill-row" onClick={() => open(s)}>
               <span className="skill-name">{s.name}
                 {s.shared_groups?.length > 0 && <span className="skill-badge">Shared with {s.shared_groups.map(groupLabel).join(', ')}</span>}
+                {profileNote(s) && <span className="skill-badge">{profileNote(s)}</span>}
               </span>
               {s.summary && <span className="skill-summary">{s.summary}</span>}
             </button>
@@ -145,7 +167,8 @@ function SkillsPanel({skills, shareGroups = [], onChanged}) {
           {shared.map(s => (
             <li key={s.id}>
               <button className="skill-row" onClick={() => open(s)}>
-                <span className="skill-name">{s.name}<span className="skill-badge">From {s.shared_by}</span></span>
+                <span className="skill-name">{s.name}<span className="skill-badge">From {s.shared_by}</span>
+                  {profileNote(s) && <span className="skill-badge">{profileNote(s)}</span>}</span>
                 {s.summary && <span className="skill-summary">{s.summary}</span>}
               </button>
             </li>

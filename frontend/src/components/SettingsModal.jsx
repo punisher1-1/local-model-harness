@@ -77,7 +77,7 @@ function SettingsModal({catalog, userSkills, shareGroups, onSkillsChanged, onDis
 
             {tab === 'accounts' && who?.accounts_admin && <AccountsPanel/>}
 
-            {tab === 'skills' && <SkillsPanel skills={userSkills} shareGroups={shareGroups} onChanged={onSkillsChanged}/>}
+            {tab === 'skills' && <SkillsPanel skills={userSkills} shareGroups={shareGroups} profiles={catalog.map(p => p.id)} onChanged={onSkillsChanged}/>}
 
             {tab === 'profiles' && (
               <section className="settings-section">

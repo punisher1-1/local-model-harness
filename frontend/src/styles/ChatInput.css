@@ -13,6 +13,11 @@
 .chat-input-form.glass-panel { background: var(--bg-input); border-color: var(--border-input); }
 .chat-input-form:focus-within { border-color: #91b7ef; }
 .chat-input-form.dragging { border-color: var(--accent-color); border-style: dashed; }
+.quick-skills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.quick-skills-label { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-secondary); margin-right: 4px; }
+.quick-skill { max-width: 240px; padding: 4px 12px; border-radius: var(--radius-full); border: 1px solid var(--border-glass); color: var(--text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quick-skill:hover:not(:disabled) { background: var(--accent-glow); border-color: var(--accent-color); color: var(--accent-color); }
+.quick-skill:disabled { opacity: .5; cursor: not-allowed; }
 .chat-input-row { display: flex; align-items: flex-end; gap: 12px; }
 .attach-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-tertiary); }
 .attachment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }

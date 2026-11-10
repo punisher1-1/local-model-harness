@@ -1,12 +1,14 @@
 import React from 'react';
-import {USER_SKILL} from '../client';
+import {USER_SKILL, skillsFor} from '../client';
 
 // The Workflow menu: Automatic, the profile's built-in skills, the user's own skills, then
-// skills another account shared with one of the user's groups.
+// skills another account shared with one of the user's groups. User skills assigned to
+// other profiles are left out.
 function WorkflowSelect({profile, userSkills, value, onChange, disabled}) {
   const info = id => profile?.skill_info?.find(s => s.id === id);
   const builtIn = profile?.skills || [];
-  const own = userSkills.filter(s => !s.shared), shared = userSkills.filter(s => s.shared);
+  const offered = skillsFor(profile, userSkills);
+  const own = offered.filter(s => !s.shared), shared = offered.filter(s => s.shared);
   return (
     <select value={value} disabled={disabled} onChange={e => onChange(e.target.value)}>
       <option value="">Automatic{profile?.default_skill ? ` · ${info(profile.default_skill)?.title || profile.default_skill}` : ''}</option>

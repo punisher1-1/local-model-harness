@@ -1,5 +1,5 @@
 import React, { useState, useRef, useLayoutEffect } from 'react';
-import { convertDocument, digestDocument, newId } from '../client';
+import { convertDocument, digestDocument, newId, QUICK_SKILL_ASK } from '../client';
 import '../styles/ChatInput.css';
 
 const MAX_FILES = 5;
@@ -9,7 +9,9 @@ const DEFAULT_ASK = 'Summarize the attached document.';
 // textarea is disabled so the user can't fire overlapping requests.
 // Documents are converted to text as soon as they are attached, so the chip shows
 // progress and size before anything is sent.
-function ChatInput({ onSendMessage, onStop, isStreaming = false, profile, docs }) {
+// After an answer, quickSkills adds one-click buttons that run a skill on that answer for
+// one turn; anything typed in the box goes along as extra instructions.
+function ChatInput({ onSendMessage, onStop, isStreaming = false, profile, docs, quickSkills = [] }) {
   const [text, setText] = useState('');
   const [files, setFiles] = useState([]); // {id, name, state: converting|digesting|ready|error, …}
   const [dragging, setDragging] = useState(false);
@@ -59,14 +61,19 @@ function ChatInput({ onSendMessage, onStop, isStreaming = false, profile, docs }
   const ready = files.filter(f => f.state === 'ready');
   const waiting = files.some(f => ['queued', 'converting', 'digesting'].includes(f.state));
   const tooLong = ready.some(f => !f.fits);
-  const canSend = !isStreaming && !waiting && !tooLong && (text.trim() || ready.length > 0);
+  const idle = !isStreaming && !waiting && !tooLong;
+  const canSend = idle && (text.trim() || ready.length > 0);
+
+  // oneShot: a quick skill button's workflow, used for this message only.
+  const submit = (fallback, oneShot) => {
+    const attachments = ready.map(({name, text: body, chars, tokens, digest: isDigest}) => ({name, text: body, chars, tokens, digest: !!isDigest}));
+    onSendMessage(text.trim() ? text : fallback, attachments, oneShot);
+    setText(''); setFiles([]);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!canSend) return;
-    const attachments = ready.map(({name, text: body, chars, tokens, digest: isDigest}) => ({name, text: body, chars, tokens, digest: !!isDigest}));
-    onSendMessage(text.trim() ? text : DEFAULT_ASK, attachments);
-    setText(''); setFiles([]);
+    if (canSend) submit(DEFAULT_ASK);
   };
 
   const handleKeyDown = (e) => {
@@ -109,6 +116,17 @@ function ChatInput({ onSendMessage, onStop, isStreaming = false, profile, docs }
             </li>
           ))}
         </ul>
+      )}
+
+      {quickSkills.length > 0 && !isStreaming && (
+        <div className="quick-skills" role="group" aria-label="Run a skill on the last answer">
+          <span className="quick-skills-label">Run on last answer</span>
+          {quickSkills.map(s => (
+            <button key={s.value} type="button" className="quick-skill" disabled={!idle}
+              title={`${s.hint ? s.hint + '\n' : ''}Runs once on the last answer. Type a note first to add instructions.`}
+              onClick={() => submit(QUICK_SKILL_ASK, s.value)}>{s.label}</button>
+          ))}
+        </div>
       )}
 
       <div className="chat-input-row">

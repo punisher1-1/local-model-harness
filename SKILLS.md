@@ -113,6 +113,11 @@ that request's system prompt after its own rules, as user-authored instructions 
 cannot grant tools or override policy. Choosing a user skill and a `/skill` built-in on
 the same turn is refused.
 
+A user skill can be limited to chosen profiles (**Show in profiles** in its editor), so, for
+example, a troubleshooting write-up skill is not offered on a general assistant profile.
+With none chosen it is offered on every profile. The `/chat/` menus and quick buttons apply
+this; the harness stores and validates the profile names but does not refuse a request by it.
+
 ### Sharing a skill with a group
 
 A signed-in account can share one of its skills with identity groups (the `role_grants`

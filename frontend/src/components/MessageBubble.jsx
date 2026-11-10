@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {memo} from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CopyButton from './CopyButton';
@@ -99,7 +99,7 @@ function MessageBubble({message: m, skillLabel, busy, onResend}) {
           <div className="user-actions">
             <CopyButton className="copy user-copy" text={m.content}/>
             {onResend && <button type="button" className="copy user-copy" disabled={busy} onClick={() => onResend(m)}
-              title="Send this question again as a new message">Resend</button>}
+              title="Send this question again as a new message, with the same workflow">Resend</button>}
           </div>
         </> : (
           <div className={`markdown ${m.status === 'running' && m.content ? 'streaming' : ''}`}>
@@ -134,4 +134,5 @@ function MessageBubble({message: m, skillLabel, busy, onResend}) {
   );
 }
 
-export default MessageBubble;
+// Memoized: while an answer streams, only its own bubble re-renders and re-parses Markdown.
+export default memo(MessageBubble);

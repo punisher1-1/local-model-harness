@@ -110,12 +110,31 @@ export function newId() {
 export const USER_SKILL = 'user:';
 export const userSkillId = skill => skill?.startsWith(USER_SKILL) ? skill.slice(USER_SKILL.length) : null;
 
-// Keep a saved workflow only if the profile still offers it or the user skill still exists.
+// The user's skills offered on a profile: those assigned to it, plus those assigned to none
+// (a skill with no profiles shows everywhere).
+export function skillsFor(profile, userSkills=[]) {
+  return userSkills.filter(s=>!s.profiles?.length || s.profiles.includes(profile?.id));
+}
+
+// Keep a saved workflow only if the profile still offers it or the user skill still exists
+// and is assigned to that profile.
 export function availableWorkflow(skill, profile, userSkills=[]) {
   if (!skill) return '';
   const own = userSkillId(skill);
-  if (own) return userSkills.some(s=>s.id===own) ? skill : '';
+  if (own) return skillsFor(profile, userSkills).some(s=>s.id===own) ? skill : '';
   return profile?.skills?.includes(skill) ? skill : '';
+}
+
+// One-click buttons offered in the message box once an answer is in: each workflow the chat
+// could select, run for a single turn on that answer. The workflow already in effect is
+// left out, since every turn uses it anyway.
+export const QUICK_SKILL_ASK = 'Apply this workflow to your previous answer.';
+export function quickSkills(profile, userSkills=[], active='') {
+  const info = id => profile?.skill_info?.find(s=>s.id===id);
+  return [
+    ...(profile?.skills || []).map(id=>({value:id, label:info(id)?.title || id, hint:info(id)?.description || ''})),
+    ...skillsFor(profile, userSkills).map(s=>({value:USER_SKILL+s.id, label:s.name, hint:s.shared ? `Shared by ${s.shared_by}` : s.summary || ''})),
+  ].filter(s=>s.value!==active);
 }
 
 // Only user turns and complete answers are replayed; stopped or failed output
@@ -206,6 +225,11 @@ export async function projectRequest(path='', method='GET', body) {
 export function projectDefaults(project, profile, userSkills=[]) {
   const servers=(profile?.mcp_servers || []).map(s=>s.id);
   return {skill:availableWorkflow(project.skill, profile, userSkills), mcp:project.mcp_servers.filter(id=>servers.includes(id))};
+}
+// Only the messages after the first `saved` ones, with the chat's current options: what a
+// turn adds to a chat the harness already holds. `full` is storedConversation's result.
+export function appendedConversation(full, saved) {
+  return {revision:full.revision, messages:full.messages.slice(saved), skill:full.skill, mcp_servers:full.mcp_servers, project_id:full.project_id};
 }
 export function storedConversation(session) {
   return {profile:session.profile,title:session.title,revision:session.revision || 0,skill:session.skill || '',mcp_servers:session.mcp_servers ?? null,project_id:session.project_id || null,

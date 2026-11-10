@@ -66,6 +66,21 @@ class Conversation(BaseModel):
     project_id: UUID | None = None
 
 
+class ConversationAppend(BaseModel):
+    """New messages for the end of a saved chat, plus its current options. The chat UI sends
+    this each turn instead of the whole transcript, so attached documents upload once."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    revision: int = Field(ge=1)
+    messages: list[Message] = Field(max_length=4096)
+    skill: str = Field(default="", max_length=128)
+    mcp_servers: list[Annotated[str, Field(min_length=1, max_length=64)]] | None = Field(default=None, max_length=8)
+    project_id: UUID | None = None
+
+
+MAX_MESSAGES = 4096
+TOO_LARGE = f"Conversation exceeds the {MAX_BYTES // 1_000_000} MB storage limit; start a new chat"
+
+
 class Project(BaseModel):
     """A folder of chats with the defaults a new chat in it starts from. Defaults are
     display state like a chat's options: every request is still checked by the server."""
@@ -89,6 +104,9 @@ class UserSkill(BaseModel):
     content: str = Field(min_length=1, max_length=USER_SKILL_CHARS)
     # Identity groups (role_grants names) whose members may use it, read-only. Empty: private.
     shared_groups: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=8)
+    # Profiles whose Workflow menu and quick buttons offer it. Empty: every profile. This is a
+    # display choice, not a permission: the chat route does not refuse a skill by profile.
+    profiles: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=64)
 
 
 def skill_summary(content):
@@ -125,6 +143,8 @@ def install_conversations(app, auth):
             db.execute("CREATE TABLE IF NOT EXISTS user_skills (owner TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, content TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))")
             if "shared_groups" not in {row["name"] for row in db.execute("PRAGMA table_info(user_skills)")}:
                 db.execute("ALTER TABLE user_skills ADD COLUMN shared_groups TEXT NOT NULL DEFAULT '[]'")
+            if "profiles" not in {row["name"] for row in db.execute("PRAGMA table_info(user_skills)")}:
+                db.execute("ALTER TABLE user_skills ADD COLUMN profiles TEXT NOT NULL DEFAULT '[]'")
             db.execute("CREATE TABLE IF NOT EXISTS projects (owner TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, profile TEXT NOT NULL, skill TEXT NOT NULL, mcp_servers TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))")
         os.chmod(path, 0o600)
 
@@ -143,6 +163,19 @@ def install_conversations(app, auth):
 
     def response(data):
         return JSONResponse(data, headers={"Cache-Control":"no-store"})
+
+    async def bounded_body(request):
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body)>MAX_BYTES:
+                raise HTTPException(413, TOO_LARGE)
+        return body
+
+    def existing_project(db, owner, project_id):
+        # A project deleted in another tab leaves the chat ungrouped rather than failing the save.
+        return str(project_id) if project_id and db.execute(
+            "SELECT 1 FROM projects WHERE owner=? AND id=?", (owner,str(project_id))).fetchone() else None
 
     @app.get("/v1/conversations", dependencies=[Depends(auth)])
     def listing(request: Request, offset: int = 0):
@@ -172,11 +205,7 @@ def install_conversations(app, auth):
     @app.put("/v1/conversations/{cid}", dependencies=[Depends(auth)])
     async def save(cid: UUID, request: Request):
         p, owner = identity(request)
-        body = bytearray()
-        async for chunk in request.stream():
-            body.extend(chunk)
-            if len(body)>MAX_BYTES:
-                raise HTTPException(413, "Conversation exceeds the 2 MB storage limit; start a new chat")
+        body = await bounded_body(request)
         try:
             item = Conversation.model_validate_json(body)
         except ValidationError:
@@ -196,12 +225,37 @@ def install_conversations(app, auth):
                 if not old and db.execute("SELECT count(*) FROM conversations WHERE owner=?", (owner,)).fetchone()[0]>=1000:
                     raise HTTPException(409, "Chat history limit reached; delete an old conversation first")
                 revision = item.revision+1
-                # A project deleted in another tab leaves the chat ungrouped rather than failing the save.
-                project = str(item.project_id) if item.project_id and db.execute(
-                    "SELECT 1 FROM projects WHERE owner=? AND id=?", (owner,str(item.project_id))).fetchone() else None
-                options = json.dumps({"skill": item.skill, "mcp_servers": item.mcp_servers, "project_id": project})
+                options = json.dumps({"skill": item.skill, "mcp_servers": item.mcp_servers, "project_id": existing_project(db, owner, item.project_id)})
                 db.execute("INSERT INTO conversations (owner,id,profile,title,revision,messages,updated_at,options) VALUES (?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?) ON CONFLICT(owner,id) DO UPDATE SET title=excluded.title, revision=excluded.revision, messages=excluded.messages, updated_at=excluded.updated_at, options=excluded.options", (owner,str(cid),item.profile,item.title,revision,json.dumps([m.model_dump() for m in item.messages]),options))
             return revision
+        revision = await run_in_threadpool(commit)
+        return response({"id":str(cid),"revision":revision})
+
+    @app.patch("/v1/conversations/{cid}", dependencies=[Depends(auth)])
+    async def append(cid: UUID, request: Request):
+        """Add messages to the end of a saved chat and update its options. Same revision
+        check and limits as a full save; earlier messages are never changed."""
+        p, owner = identity(request)
+        try:
+            item = ConversationAppend.model_validate_json(await bounded_body(request))
+        except ValidationError:
+            raise HTTPException(400, "Invalid conversation") from None
+        def commit():
+            with database(path) as db:
+                db.execute("BEGIN IMMEDIATE")
+                old = allowed_row(db, owner, cid, p)
+                if item.revision != old["revision"]:
+                    raise HTTPException(409, "This chat changed in another tab. Reopen it before continuing")
+                messages = json.loads(old["messages"]) + [m.model_dump() for m in item.messages]
+                if len(messages) > MAX_MESSAGES:
+                    raise HTTPException(400, "Invalid conversation")
+                stored = json.dumps(messages)
+                if len(stored.encode()) > MAX_BYTES:
+                    raise HTTPException(413, TOO_LARGE)
+                options = json.dumps({"skill": item.skill, "mcp_servers": item.mcp_servers, "project_id": existing_project(db, owner, item.project_id)})
+                db.execute("UPDATE conversations SET revision=?, messages=?, options=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE owner=? AND id=?",
+                           (item.revision+1, stored, options, owner, str(cid)))
+            return item.revision+1
         revision = await run_in_threadpool(commit)
         return response({"id":str(cid),"revision":revision})
 
@@ -266,7 +320,8 @@ def install_conversations(app, auth):
         return Response(status_code=204)
 
     def skill_row(row, content=False):
-        data = {"id": row["id"], "name": row["name"], "summary": skill_summary(row["content"]), "updated_at": row["updated_at"]}
+        data = {"id": row["id"], "name": row["name"], "summary": skill_summary(row["content"]), "updated_at": row["updated_at"],
+                "profiles": json.loads(row["profiles"])}
         if "shared_by" in row.keys():
             data.update(shared=True, shared_by=row["shared_by"] or "another account")
         else:
@@ -328,7 +383,11 @@ def install_conversations(app, auth):
                 raise HTTPException(400, "Sign in with your account to share skills")
             if unknown:
                 raise HTTPException(400, "Unknown group: " + ", ".join(sorted(unknown)))
+        unknown = set(item.profiles) - set(app.state.settings.profiles)
+        if unknown:
+            raise HTTPException(400, "Unknown profile: " + ", ".join(sorted(unknown)))
         groups = json.dumps(sorted(set(item.shared_groups)))
+        profiles = json.dumps(sorted(set(item.profiles)))
         def commit():
             with database(path) as db:
                 db.execute("BEGIN IMMEDIATE")
@@ -338,8 +397,8 @@ def install_conversations(app, auth):
                 exists = db.execute("SELECT 1 FROM user_skills WHERE owner=? AND id=?", (owner, str(sid))).fetchone()
                 if not exists and db.execute("SELECT count(*) FROM user_skills WHERE owner=?", (owner,)).fetchone()[0] >= MAX_USER_SKILLS:
                     raise HTTPException(409, f"Skill limit reached ({MAX_USER_SKILLS}); delete one first")
-                db.execute("INSERT INTO user_skills (owner,id,name,content,shared_groups,updated_at) VALUES (?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(owner,id) DO UPDATE SET name=excluded.name, content=excluded.content, shared_groups=excluded.shared_groups, updated_at=excluded.updated_at",
-                           (owner, str(sid), item.name.strip(), item.content.strip(), groups))
+                db.execute("INSERT INTO user_skills (owner,id,name,content,shared_groups,profiles,updated_at) VALUES (?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(owner,id) DO UPDATE SET name=excluded.name, content=excluded.content, shared_groups=excluded.shared_groups, profiles=excluded.profiles, updated_at=excluded.updated_at",
+                           (owner, str(sid), item.name.strip(), item.content.strip(), groups, profiles))
                 return skill_row(db.execute("SELECT * FROM user_skills WHERE owner=? AND id=?", (owner, str(sid))).fetchone(), content=True)
         return response(await run_in_threadpool(commit))
 

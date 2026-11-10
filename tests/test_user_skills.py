@@ -109,3 +109,15 @@ def test_skills_are_private_to_their_identity(harness, tmp_path):
 ])
 def test_summary_is_the_first_sentence(content, summary):
     assert skill_summary(content) == summary
+
+
+def test_skill_profiles_are_saved_listed_and_checked(harness):
+    client, _ = harness
+    sid, r = put(client)
+    assert r.json()["profiles"] == []
+    assert put(client, sid, profiles=["local", "local"])[1].json()["profiles"] == ["local"]
+    assert client.get("/v1/skills", headers=HEADERS).json()["data"][0]["profiles"] == ["local"]
+    r = put(client, sid, profiles=["missing"])[1]
+    assert r.status_code == 400 and "missing" in r.json()["error"]["message"]
+    # Clearing the list makes it available in every profile again.
+    assert put(client, sid, profiles=[])[1].json()["profiles"] == []

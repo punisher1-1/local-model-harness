@@ -5,7 +5,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsModal from './components/SettingsModal';
 import ProjectModal from './components/ProjectModal';
-import {profiles as getProfiles, chat, historyRequest, loadHistory, projectRequest, projectDefaults, skillRequest, availableWorkflow, userSkillId, storedConversation, documentsConfig, replayHistory, newId, startSession, currentSession, endSession, onUnauthorized, authConfig, SIGN_IN_ERRORS} from './client';
+import {profiles as getProfiles, chat, historyRequest, loadHistory, projectRequest, projectDefaults, skillRequest, availableWorkflow, userSkillId, storedConversation, appendedConversation, documentsConfig, replayHistory, newId, startSession, currentSession, endSession, onUnauthorized, authConfig, SIGN_IN_ERRORS} from './client';
 import './App.css';
 
 // App owns the sign-in state and the conversation list. The harness credential
@@ -107,10 +107,11 @@ function App() {
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
-  // After a skill is deleted, a chat that had it selected falls back to Automatic.
+  // After a skill is deleted or moved to other profiles, a chat that had it selected falls
+  // back to Automatic.
   function skillsChanged(list) {
     setUserSkills(list);
-    setSkill(current => userSkillId(current) && !list.some(s => s.id === userSkillId(current)) ? '' : current);
+    setSkill(current => userSkillId(current) ? availableWorkflow(current, profile, list) : current);
   }
 
   async function saveProject(id, fields) {
@@ -137,7 +138,7 @@ function App() {
     setBusy(true); setError('');
     try {
       const loaded = await historyRequest('', `/${s.id}`);
-      setSessions(list => list.map(x => x.id === s.id ? loaded : x));
+      setSessions(list => list.map(x => x.id === s.id ? {...loaded, savedCount: loaded.messages.length} : x));
       // Restore this chat's workflow and tools, limited to what the profile still allows.
       const allowed = catalog.find(p => p.id === loaded.profile);
       const available = (allowed?.mcp_servers || []).map(x => x.id);
@@ -146,10 +147,17 @@ function App() {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
+  // A chat the harness already holds is saved by sending only its new messages (savedCount
+  // is how many it has), so a long transcript and its attached documents upload once, not
+  // twice a turn. A new chat, or one whose saved length is unknown, is sent whole.
   async function saveSession(record) {
-    const receipt = await historyRequest('', `/${record.id}`, 'PUT', storedConversation(record));
-    setSessions(list => list.map(s => s.id === record.id ? {...s, revision: receipt.revision, unsaved: false} : s));
-    return {...record, revision: receipt.revision, unsaved: false};
+    const full = storedConversation(record);
+    const tail = record.revision > 0 && Number.isInteger(record.savedCount) && record.savedCount <= full.messages.length;
+    const receipt = tail ? await historyRequest('', `/${record.id}`, 'PATCH', appendedConversation(full, record.savedCount))
+      : await historyRequest('', `/${record.id}`, 'PUT', full);
+    const saved = {revision: receipt.revision, unsaved: false, savedCount: full.messages.length};
+    setSessions(list => list.map(s => s.id === record.id ? {...s, ...saved} : s));
+    return {...record, ...saved};
   }
 
   async function retrySave() {
@@ -168,12 +176,14 @@ function App() {
 
   // Save the user turn first, stream the answer, then save the final state.
   // Stopped or failed answers are kept for display but never replayed.
-  async function send(text, attachments = []) {
+  // oneShot is a workflow for this turn only (a quick skill button); the chat keeps its own.
+  async function send(text, attachments = [], oneShot) {
     if (busy || !profile) return;
+    const turnSkill = oneShot ?? skill;
     if (session?.unsaved) { setError('Save the previous turn before continuing, or reopen the conversation to load the saved version.'); return; }
-    const sid = session?.id || newId(), mid = newId(), user = {id: newId(), role: 'user', content: text, skill, ...(attachments.length ? {attachments} : {})};
+    const sid = session?.id || newId(), mid = newId(), user = {id: newId(), role: 'user', content: text, skill: turnSkill, ...(attachments.length ? {attachments} : {})};
     const old = session?.messages || [];
-    const history = replayHistory(old, text, skill, attachments);
+    const history = replayHistory(old, text, turnSkill, attachments);
     let answer = {id: mid, role: 'assistant', content: '', reasoning: '', status: 'running'};
     let record = {...(session || {id: sid, title: text.slice(0, 48), profile: profile.id, revision: 0, project_id: projectId}), messages: [...old, user], skill, mcp_servers: mcp, unsaved: true};
     setSessions(list => session ? list.map(s => s.id === sid ? record : s) : [record, ...list]);
@@ -185,7 +195,7 @@ function App() {
       if (controller.signal.aborted) return;
       started = true;
       setSessions(list => list.map(s => s.id === sid ? {...s, messages: [...record.messages, answer]} : s));
-      await chat({profile: profile.id, messages: history, signal: controller.signal, mcp: profile.mcp_servers?.length ? mcp : undefined, userSkill: userSkillId(skill),
+      await chat({profile: profile.id, messages: history, signal: controller.signal, mcp: profile.mcp_servers?.length ? mcp : undefined, userSkill: userSkillId(turnSkill),
         onHeaders: meta => { answer = {...answer, meta}; update(sid, mid, () => answer); },
         onEvent: event => {
           const delta = event.choices?.[0]?.delta || {};

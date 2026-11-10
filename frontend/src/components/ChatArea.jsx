@@ -1,8 +1,8 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useCallback, useEffect, useRef} from 'react';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import WorkflowSelect from './WorkflowSelect';
-import {userSkillId} from '../client';
+import {userSkillId, quickSkills, availableWorkflow} from '../client';
 import '../styles/ChatArea.css';
 
 // Profiles lock after the first message; a new chat is needed to switch.
@@ -18,6 +18,14 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, project
   const workflow = own ? {description: own.summary || own.name} : info(skill || profile?.default_skill);
   const servers = profile?.mcp_servers || [];
   const enabled = servers.filter(s => mcp.includes(s.id));
+  // Quick skill buttons appear once the latest answer is complete.
+  const last = session?.messages?.at(-1);
+  const quick = last?.role === 'assistant' && last.status === 'complete' ? quickSkills(profile, userSkills, skill || profile?.default_skill || '') : [];
+  // Resend repeats a question with the workflow it was first sent with, if that still exists.
+  // The callback keeps one identity so finished messages are not re-rendered while an answer streams.
+  const resendNow = useRef(null);
+  resendNow.current = q => onSend(q.content, q.attachments || [], availableWorkflow(q.skill || '', profile, userSkills));
+  const resend = useCallback(q => resendNow.current(q), []);
   useEffect(() => { end.current?.scrollIntoView({block: 'nearest'}); }, [session?.messages]);
 
   return (
@@ -84,8 +92,7 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, project
               </p>
             </div>
           )}
-          {session?.messages?.map(m => <MessageBubble key={m.id} message={m} skillLabel={workflowLabel(m.skill)} busy={busy}
-            onResend={m.role === 'user' ? q => onSend(q.content, q.attachments || []) : undefined}/>)}
+          {session?.messages?.map(m => <MessageBubble key={m.id} message={m} skillLabel={workflowLabel(m.skill)} busy={busy} onResend={resend}/>)}
           <div ref={end}/>
         </div>
       </div>
@@ -98,7 +105,7 @@ function ChatArea({session, profile, catalog, selected, onSelectProfile, project
           </div>
         )}
         {error && <div className="chat-error" role="alert">{error}</div>}
-        <ChatInput onSendMessage={onSend} onStop={onStop} isStreaming={busy} profile={profile?.id} docs={docs}/>
+        <ChatInput onSendMessage={onSend} onStop={onStop} isStreaming={busy} profile={profile?.id} docs={docs} quickSkills={quick}/>
       </div>
     </main>
   );

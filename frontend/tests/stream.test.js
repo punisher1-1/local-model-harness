@@ -168,3 +168,33 @@ test('saved messages keep attachments without client-only fields',async()=>{
  const data=storedConversation({profile:'p',title:'t',messages:[{id:'1',role:'user',content:'Hi',attachments:[{id:'x',name:'a.pdf',text:'T',chars:1,tokens:3,state:'ready',fits:true}]}]});
  assert.deepEqual(data.messages[0].attachments,[{name:'a.pdf',text:'T',chars:1,tokens:3,digest:false}]);
 });
+
+test('quick skill buttons list built-in and user skills, minus the active workflow',async()=>{
+ const {quickSkills}=await import('../src/client.js');
+ const profile={skills:['a','b'],skill_info:[{id:'a',title:'Alpha',description:'First.'}]};
+ const own=[{id:'x',name:'Human Writing',summary:'Plain voice'},{id:'y',name:'Team',shared:true,shared_by:'Sam'}];
+ assert.deepEqual(quickSkills(profile,own,'a'),[{value:'b',label:'b',hint:''},{value:'user:x',label:'Human Writing',hint:'Plain voice'},{value:'user:y',label:'Team',hint:'Shared by Sam'}]);
+ assert.equal(quickSkills(profile,own,'user:x').length,3);
+ assert.deepEqual(quickSkills(null),[]);
+});
+
+test('user skills assigned to profiles are offered only there',async()=>{
+ const {skillsFor,quickSkills,availableWorkflow}=await import('../src/client.js');
+ const skills=[{id:'any',name:'Anywhere'},{id:'it',name:'IT write-up',profiles:['it-troubleshoot']},{id:'none',name:'Empty list',profiles:[]}];
+ const home={id:'local-assistant',skills:[]},it={id:'it-troubleshoot',skills:[]};
+ assert.deepEqual(skillsFor(home,skills).map(s=>s.id),['any','none']);
+ assert.deepEqual(skillsFor(it,skills).map(s=>s.id),['any','it','none']);
+ assert.deepEqual(quickSkills(home,skills).map(s=>s.value),['user:any','user:none']);
+ assert.equal(availableWorkflow('user:it',home,skills),'');
+ assert.equal(availableWorkflow('user:it',it,skills),'user:it');
+});
+
+test('a turn saves only the messages the harness does not have yet',async()=>{
+ const {storedConversation,appendedConversation}=await import('../src/client.js');
+ const full=storedConversation({profile:'p',title:'t',revision:4,skill:'notes',mcp_servers:['vault'],project_id:'abc',messages:[{id:'1',role:'user',content:'Hi'},{id:'2',role:'assistant',content:'Hello',status:'complete'},{id:'3',role:'user',content:'More'},{id:'4',role:'assistant',content:'',status:'running'}]});
+ const tail=appendedConversation(full,2);
+ assert.deepEqual(tail.messages.map(m=>m.id),['3']);
+ assert.deepEqual([tail.revision,tail.skill,tail.mcp_servers,tail.project_id],[4,'notes',['vault'],'abc']);
+ assert.ok(!('profile' in tail) && !('title' in tail));
+ assert.deepEqual(appendedConversation(full,3).messages,[]);
+});
