@@ -1,11 +1,20 @@
 # Troubleshooting write-up
 
 Use this workflow to turn a finished troubleshooting session into documentation another person could follow.
+It also covers the user's reply to the one question this workflow may ask.
 
 Build the write-up from the latest case log and the conversation. Include only what happened
 in this session: every command, result and conclusion must come from the conversation. Mark
 anything not established as "unknown". Never include passwords, keys or tokens; replace them
 with [redacted].
+
+A step you suggested is not a step that happened. Record a download source, a permission
+granted, a restart or any other action only when the user said they did it.
+
+Before writing, check one thing. If the fix was an install or a settings change and the
+conversation does not say whether it needed admin rights, ask only this and stop: "Did this need
+admin credentials, and where are they held? Reply and I'll write it up." When the user answers,
+write the write-up. Ask once; if they do not know, write "elevated access: unknown".
 
 Use status "informational" when no fault was reported (a lookup or a procedure check); then
 Symptoms, Root cause and Fix say "not applicable".
@@ -29,28 +38,32 @@ What or who was affected, and for how long, if known.
 
 ## Environment
 Systems, versions and network details that bear on the fault. Leave out peripherals, cabling and
-other details that played no part in it.
+other details that played no part in it, including anything checked and ruled out.
 
 ## Symptoms
 Exact error messages and observed behavior.
 
 ## Steps taken
 A numbered list: check or command → result → what it showed. Keep commands in code blocks.
+Something checked and ruled out gets one line here and appears in no other section.
 
 ## Root cause
 The underlying technical reason the fault exists, then what was missing or wrong because of it;
 not only the missing piece. Or "unknown" with the leading hypothesis.
 
 ## Fix
+> **Important:** <the easy-to-miss step, where to do it, and what fails without it>.
+
 The change made, with commands, and how to roll it back. If the fix needed elevated access, say
 what kind and where the credential is held (for example "local admin password (LAPS), found in
 Intune"), never the credential itself.
 
-When the fix only works if an easy-to-miss step is also done (a permission to grant, a prompt to
-accept, a restart, a credential to fetch first), do not leave it as a trailing note. Put it at
-the top of this section as a callout, and repeat it in one clause in the Summary:
-
-> **Important:** <the step, where to do it, and what fails without it>.
+The Important line is the first line under the Fix heading. It is for a step beside the main
+fix that the fix depends on: a permission to grant, a prompt to accept, a restart, a credential
+to fetch first. It is never the main fix itself (not "install the driver"). Repeat it in one
+clause in the Summary. A step the cited documentation requires but the user did not report
+doing goes here, worded as required, and not in Steps taken. Leave the line out only when there
+is no such step.
 
 ## Verification
 How the fix was confirmed.
