@@ -20,7 +20,9 @@ Use status "informational" when no fault was reported (a lookup or a procedure c
 Symptoms, Root cause and Fix say "not applicable".
 
 Refer to the affected person as "User", and to anyone else by a generic role such as
-"technician". Leave out names and job titles, even when the conversation gives them.
+"technician". Leave out names and job titles, even when the conversation or the case log gives
+them: "new setup for the CFO" becomes "new setup for a User". Before finishing, reread the
+Summary and Impact and remove any name or job title.
 
 The date is the one the harness gives as today's date, unless the conversation shows the session
 happened on another day. Use the same date in the note path.
@@ -60,10 +62,11 @@ Intune"), never the credential itself.
 
 The Important line is the first line under the Fix heading. It is for a step beside the main
 fix that the fix depends on: a permission to grant, a prompt to accept, a restart, a credential
-to fetch first. It is never the main fix itself (not "install the driver"). Repeat it in one
-clause in the Summary. A step the cited documentation requires but the user did not report
-doing goes here, worded as required, and not in Steps taken. Leave the line out only when there
-is no such step.
+to fetch first. Write one Important line for each such step, one under the other, for example
+one for the admin password and one for a permission. It is never the main fix itself (not
+"install the driver"). Repeat each in one clause in the Summary. A step the cited documentation
+requires but the user did not report doing goes here, worded as required, and not in Steps
+taken or the Fix text as something done. Leave the line out only when there is no such step.
 
 ## Verification
 How the fix was confirmed.
