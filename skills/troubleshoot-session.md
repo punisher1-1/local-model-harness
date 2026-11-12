@@ -91,7 +91,8 @@ When a check confirms the fix, the problem is handed off, or the user stops: two
 the cause and fix (or the hand-off), then offer a write-up: "Troubleshooting write-up" in the
 Workflow menu, or `/skill troubleshoot-writeup`.
 
-End every reply with this block, one short line per field, under 10 lines:
+End every reply with this block, one short line per field, under 10 lines. The one exception is
+a troubleshooting write-up, which ends after its Sources and carries no case log:
 
 ### Case log
 - **Symptom:** …

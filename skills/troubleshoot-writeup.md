@@ -33,10 +33,12 @@ Format, in Markdown:
 **Date:** <date of the session, if known> · **Status:** resolved / workaround / escalated / open / informational
 
 ## Summary
-Two or three sentences: the symptom, the root cause, the fix.
+Two or three sentences: the symptom, the root cause, the fix. Say "a User's <device>"; never a
+name or job title.
 
 ## Impact
-What or who was affected, and for how long, if known.
+Start with "One User" or "<N> Users", then what was affected and for how long, if known. Never a
+name or job title.
 
 ## Environment
 Systems, versions and network details that bear on the fault. Leave out peripherals, cabling and
@@ -76,6 +78,9 @@ Monitoring, documentation updates or changes that would stop a repeat.
 
 ## Sources
 Knowledge-base documents cited during the session (title and locator), or "none".
+
+The write-up ends after Sources. Do not add a case log, or a cause and fix recap, after it; the
+only text that may follow is the offer to save or the saved path.
 
 Show the write-up in the chat first. Save it only when the user asks: create a new vault note
 with vault_create_note at `Troubleshooting/YYYY-MM-DD-<short-slug>.md` (lowercase words joined by
