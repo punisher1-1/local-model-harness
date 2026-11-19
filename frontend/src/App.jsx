@@ -1,0 +1,256 @@
+import React, {useState, useRef, useEffect} from 'react';
+import Brand from './components/Brand';
+import Login from './components/Login';
+import Sidebar from './components/Sidebar';
+import ChatArea from './components/ChatArea';
+import SettingsModal from './components/SettingsModal';
+import ProjectModal from './components/ProjectModal';
+import {profiles as getProfiles, chat, historyRequest, loadHistory, projectRequest, projectDefaults, skillRequest, availableWorkflow, userSkillId, storedConversation, appendedConversation, documentsConfig, replayHistory, newId, startSession, currentSession, endSession, onUnauthorized, authConfig, SIGN_IN_ERRORS} from './client';
+import './App.css';
+
+// App owns the sign-in state and the conversation list. The harness credential
+// is exchanged once for an HttpOnly session cookie and is never kept in the page;
+// transcripts are stored on the harness, never in the browser.
+function App() {
+  const [connected, setConnected] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [auth, setAuth] = useState(null);
+  const [account, setAccount] = useState(null); // name/email/groups for a passkey sign-in; null for a key
+  const [catalog, setCatalog] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [active, setActive] = useState(null);
+  const [selected, setSelected] = useState('');
+  const [skill, setSkill] = useState('');
+  const [mcp, setMcp] = useState([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const [userSkills, setUserSkills] = useState([]);
+  const [shareGroups, setShareGroups] = useState([]);
+  const [docs, setDocs] = useState({converter: false, types: [], max_bytes: 0});
+  // The project a new chat will join; an open chat carries its own project_id.
+  const [projectId, setProjectId] = useState(null);
+  const [editing, setEditing] = useState(undefined); // undefined: closed, null: new project
+  const abort = useRef(null);
+  const session = sessions.find(s => s.id === active);
+  const profile = catalog.find(p => p.id === (session?.profile || selected));
+
+  // Tool servers that start switched on for a new chat on this profile.
+  function mcpDefaults(p) {
+    return (p?.mcp_servers || []).filter(s => s.default).map(s => s.id);
+  }
+
+  function chooseProfile(id, list = catalog) {
+    setSelected(id); setSkill(''); setMcp(mcpDefaults(list.find(p => p.id === id)));
+  }
+
+  function toggleMcp(id) {
+    setMcp(list => list.includes(id) ? list.filter(s => s !== id) : [...list, id]);
+  }
+
+  function reset() {
+    abort.current?.abort();
+    setConnected(false); setAccount(null); setCatalog([]); setSessions([]); setActive(null); setSkill(''); setError(''); setSettingsOpen(false);
+    setProjects([]); setUserSkills([]); setProjectId(null); setEditing(undefined);
+  }
+
+  // Restore an existing session on load; any later 401 means it has expired.
+  useEffect(() => {
+    onUnauthorized(() => { reset(); setNotice('Your session expired. Sign in again.'); });
+    // A failed identity-provider sign-in comes back as ?auth_error=<code>; show it once.
+    const failed = new URLSearchParams(window.location.search).get('auth_error');
+    if (failed) { setNotice(SIGN_IN_ERRORS[failed] || SIGN_IN_ERRORS.failed); window.history.replaceState(null, '', window.location.pathname); }
+    authConfig().then(setAuth);
+    currentSession().then(s => { if (s) { setAccount(s.user || null); return loadWorkspace(); } }).catch(e => setNotice(e.message)).finally(() => setChecking(false));
+    return () => { onUnauthorized(null); abort.current?.abort(); };
+  }, []);
+
+  async function loadWorkspace() {
+    const data = await getProfiles();
+    if (!data.length) throw new Error('This identity has no available profiles.');
+    const [saved, folders, own, documents] = await Promise.all([loadHistory(), projectRequest(), skillRequest(), documentsConfig()]);
+    setDocs(documents);
+    setProjects(folders.data); setUserSkills(own.data); setShareGroups(own.share_groups || []);
+    setSessions(saved); setActive(null); setCatalog(data); chooseProfile(data[0].id, data); setError(''); setNotice(''); setConnected(true);
+  }
+
+  async function connect(key) {
+    const started = await startSession(key);
+    setAccount(started?.user || null);
+    try { await loadWorkspace(); } catch (e) { await endSession(); throw e; }
+  }
+
+  async function disconnect() {
+    reset();
+    setNotice('');
+    await endSession();
+  }
+
+  // A new chat, optionally inside a project: it starts from the project's profile,
+  // workflow and tools, which can still be changed for this chat.
+  function fresh(pid = null) {
+    if (busy) return;
+    const folder = projects.find(p => p.id === pid);
+    setActive(null); setError(''); setProjectId(folder ? folder.id : null);
+    if (!folder || !catalog.some(p => p.id === folder.profile)) { chooseProfile(selected); return; }
+    const defaults = projectDefaults(folder, catalog.find(p => p.id === folder.profile), userSkills);
+    setSelected(folder.profile); setSkill(defaults.skill); setMcp(defaults.mcp);
+  }
+
+  // Move the open chat to another project (or none); a new chat restarts in that project.
+  async function moveToProject(pid) {
+    if (!session) { fresh(pid || null); return; }
+    setBusy(true);
+    try { await saveSession({...session, project_id: pid || null}); setSessions(list => list.map(s => s.id === session.id ? {...s, project_id: pid || null} : s)); setError(''); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  // After a skill is deleted or moved to other profiles, a chat that had it selected falls
+  // back to Automatic.
+  function skillsChanged(list) {
+    setUserSkills(list);
+    setSkill(current => userSkillId(current) ? availableWorkflow(current, profile, list) : current);
+  }
+
+  async function saveProject(id, fields) {
+    const saved = await projectRequest(`/${id}`, 'PUT', fields);
+    setProjects(list => [...list.filter(p => p.id !== id), saved].sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base'})));
+    setEditing(undefined);
+    if (!active && projectId === id) setProjectId(id);
+  }
+
+  async function deleteProject(id) {
+    if (!window.confirm('Delete this project? Its chats stay saved and move to Chats.')) return;
+    await projectRequest(`/${id}`, 'DELETE');
+    setProjects(list => list.filter(p => p.id !== id));
+    setSessions(list => list.map(s => s.project_id === id ? {...s, project_id: null} : s));
+    if (projectId === id) setProjectId(null);
+    setEditing(undefined);
+  }
+
+  function update(sid, mid, fn) {
+    setSessions(old => old.map(s => s.id === sid ? {...s, messages: s.messages.map(m => m.id === mid ? fn(m) : m)} : s));
+  }
+
+  async function openSession(s) {
+    setBusy(true); setError('');
+    try {
+      const loaded = await historyRequest('', `/${s.id}`);
+      setSessions(list => list.map(x => x.id === s.id ? {...loaded, savedCount: loaded.messages.length} : x));
+      // Restore this chat's workflow and tools, limited to what the profile still allows.
+      const allowed = catalog.find(p => p.id === loaded.profile);
+      const available = (allowed?.mcp_servers || []).map(x => x.id);
+      setActive(s.id); setSelected(loaded.profile); setProjectId(loaded.project_id || null); setSkill(availableWorkflow(loaded.skill, allowed, userSkills));
+      setMcp(loaded.mcp_servers ? loaded.mcp_servers.filter(id => available.includes(id)) : mcpDefaults(allowed));
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  // A chat the harness already holds is saved by sending only its new messages (savedCount
+  // is how many it has), so a long transcript and its attached documents upload once, not
+  // twice a turn. A new chat, or one whose saved length is unknown, is sent whole.
+  async function saveSession(record) {
+    const full = storedConversation(record);
+    const tail = record.revision > 0 && Number.isInteger(record.savedCount) && record.savedCount <= full.messages.length;
+    const receipt = tail ? await historyRequest('', `/${record.id}`, 'PATCH', appendedConversation(full, record.savedCount))
+      : await historyRequest('', `/${record.id}`, 'PUT', full);
+    const saved = {revision: receipt.revision, unsaved: false, savedCount: full.messages.length};
+    setSessions(list => list.map(s => s.id === record.id ? {...s, ...saved} : s));
+    return {...record, ...saved};
+  }
+
+  async function retrySave() {
+    setBusy(true);
+    try { await saveSession(session); setError(''); } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  async function removeSession() {
+    if (!window.confirm('Delete this saved conversation? This cannot be undone.')) return;
+    setBusy(true);
+    try {
+      await historyRequest('', `/${session.id}?revision=${session.revision}`, 'DELETE');
+      setSessions(list => list.filter(s => s.id !== session.id)); setActive(null); setError('');
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
+  // Save the user turn first, stream the answer, then save the final state.
+  // Stopped or failed answers are kept for display but never replayed.
+  // oneShot is a workflow for this turn only (a quick skill button); the chat keeps its own.
+  async function send(text, attachments = [], oneShot) {
+    if (busy || !profile) return;
+    const turnSkill = oneShot ?? skill;
+    if (session?.unsaved) { setError('Save the previous turn before continuing, or reopen the conversation to load the saved version.'); return; }
+    const sid = session?.id || newId(), mid = newId(), user = {id: newId(), role: 'user', content: text, skill: turnSkill, ...(attachments.length ? {attachments} : {})};
+    const old = session?.messages || [];
+    const history = replayHistory(old, text, turnSkill, attachments);
+    let answer = {id: mid, role: 'assistant', content: '', reasoning: '', status: 'running'};
+    let record = {...(session || {id: sid, title: text.slice(0, 48), profile: profile.id, revision: 0, project_id: projectId}), messages: [...old, user], skill, mcp_servers: mcp, unsaved: true};
+    setSessions(list => session ? list.map(s => s.id === sid ? record : s) : [record, ...list]);
+    setActive(sid); setBusy(true); setError('');
+    const controller = new AbortController(); abort.current = controller;
+    let visible = false, toolCalls = false, started = false;
+    try {
+      record = await saveSession(record);
+      if (controller.signal.aborted) return;
+      started = true;
+      setSessions(list => list.map(s => s.id === sid ? {...s, messages: [...record.messages, answer]} : s));
+      await chat({profile: profile.id, messages: history, signal: controller.signal, mcp: profile.mcp_servers?.length ? mcp : undefined, userSkill: userSkillId(turnSkill),
+        onHeaders: meta => { answer = {...answer, meta}; update(sid, mid, () => answer); },
+        onEvent: event => {
+          const delta = event.choices?.[0]?.delta || {};
+          if (delta.content?.trim()) visible = true;
+          if (delta.tool_calls?.length) toolCalls = true;
+          answer = {...answer, content: answer.content + (delta.content || ''),
+            reasoning: answer.reasoning + (delta.reasoning_content || delta.reasoning || ''),
+            usage: event.usage || answer.usage, finish: event.choices?.[0]?.finish_reason || answer.finish,
+            runs: event.harness_runs || answer.runs};
+          update(sid, mid, () => answer);
+        }});
+      if (toolCalls) throw new Error('This client has no tool executor. The requested tool was not run.');
+      if (!visible) throw new Error('The model completed without a visible answer.');
+      answer = {...answer, status: 'complete'};
+    } catch (e) {
+      if (started) {
+        const stopped = e.name === 'AbortError';
+        answer = {...answer, status: stopped ? 'stopped' : 'failed', error: stopped ? 'Stopped. Partial output is not included in future requests.' : e.message};
+      } else {
+        setError(`Chat was not sent: ${e.message}`);
+        setSessions(list => list.map(s => s.id === sid ? {...s, unsaved: true} : s));
+      }
+    } finally {
+      if (started) {
+        update(sid, mid, () => answer);
+        record = {...record, messages: [...record.messages, answer]};
+        try { await saveSession(record); }
+        catch (e) { setError(`Answer received but not saved: ${e.message}`); setSessions(list => list.map(s => s.id === sid ? {...s, unsaved: true} : s)); }
+      }
+      setBusy(false); abort.current = null;
+    }
+  }
+
+  return (
+    <div className="app-container">
+      <header className="top-banner">
+        <Brand/>
+      </header>
+      {checking ? null : !connected ? <Login onConnect={connect} notice={notice} auth={auth}/> : (
+        <div className="main-content">
+          <Sidebar account={account} sessions={sessions} projects={projects} active={active} activeProject={session ? session.project_id : projectId} busy={busy}
+            onNewChat={fresh} onSelect={openSession} onEditProject={p => setEditing(p)}
+            onOpenSettings={() => setSettingsOpen(true)} onDisconnect={disconnect}/>
+          <ChatArea session={session} profile={profile} catalog={catalog} busy={busy} error={error}
+            projects={projects} projectId={session ? session.project_id || '' : projectId || ''} onSelectProject={moveToProject} userSkills={userSkills} docs={docs}
+            selected={session?.profile || selected} onSelectProfile={id => chooseProfile(id)}
+            skill={skill} onSelectSkill={setSkill} mcp={mcp} onToggleMcp={toggleMcp} onSend={send} onStop={() => abort.current?.abort()}
+            onDelete={removeSession} onRetrySave={retrySave}/>
+        </div>
+      )}
+      {settingsOpen && <SettingsModal catalog={catalog} userSkills={userSkills} shareGroups={shareGroups} onSkillsChanged={skillsChanged} onDisconnect={disconnect} onClose={() => setSettingsOpen(false)}/>}
+      {editing !== undefined && <ProjectModal project={editing} catalog={catalog} userSkills={userSkills} defaultProfile={selected}
+        onSave={saveProject} onDelete={deleteProject} onClose={() => setEditing(undefined)}/>}
+    </div>
+  );
+}
+
+export default App;

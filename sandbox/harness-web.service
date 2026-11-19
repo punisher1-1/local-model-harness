@@ -1,0 +1,23 @@
+[Unit]
+Description=Harness web search and page reader MCP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=webtools
+Group=webtools
+WorkingDirectory=/opt/local-ai-harness/sandbox
+EnvironmentFile=/etc/harness-web.env
+ExecStart=/opt/harness-sandbox-venv/bin/python web_server.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

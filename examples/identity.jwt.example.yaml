@@ -1,0 +1,16 @@
+# INACTIVE EXAMPLE. Replace issuer/audience/client and supply trusted PUBLIC keys.
+# No tokens or private signing keys belong in this repository or harness container.
+mode: jwt
+issuer: https://identity.example.test/your-tenant/v2.0
+audience: api://your-harness-api
+jwks_file: public.jwks.json
+# Provider-specific access-token client restriction; adapt to your IdP.
+required_claims:
+  azp: your-approved-client-id
+role_grants:
+  Harness.Chat:
+    profiles: [local-assistant, local-creative]
+  Harness.Research:
+    profiles: [local-research]
+    tools: [search_notes, read_note]
+    collections: [demo_notes]

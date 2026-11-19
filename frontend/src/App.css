@@ -1,0 +1,13 @@
+.app-container { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+.main-content { display: flex; flex: 1; min-height: 0; }
+
+.top-banner { height: 60px; flex-shrink: 0; display: flex; align-items: center; padding: 0 24px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
+.brand-logo { display: flex; align-items: center; gap: 12px; }
+.brand-mark { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--accent-color); color: var(--accent-ink); font-size: 13px; font-weight: 700; letter-spacing: -.04em; }
+.brand-name { font-size: 15px; font-weight: 600; letter-spacing: -.02em; }
+
+@media (max-width: 700px) {
+  .top-banner { height: 52px; padding: 0 16px; }
+  .main-content { flex-direction: column; }
+}
+@media (max-height: 500px) { .app-container:has(.login) { height: auto; min-height: 100dvh; } body:has(.login) { overflow: auto; } }

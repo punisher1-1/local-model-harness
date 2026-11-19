@@ -1,0 +1,6 @@
+# Fake API key used only by the test suite
+4c83eb83beb5208328343e19c05b631a4c2a3fd7:tests/test_oidc.py:generic-api-key:21
+# Example idempotency_key UUID in docs, not a secret
+d1488ff251c37535aecb4e18224ada14ac0a3142:MEMORY.md:generic-api-key:104
+# Fake API key used only by the test suite
+f7488805bee8b7ebcc7a661983f70f2b5bf845a4:tests/test_app.py:generic-api-key:10
