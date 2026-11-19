@@ -41,7 +41,7 @@ fresh chat using the same profile. A save confirms persistence, not guaranteed
 retrieval for every question: recall remains bounded and relevance-dependent.
 The browser, API, and CLI continue to support explicit management.
 
-[COMPACTION.md](COMPACTION.md) describes a separate feature: temporarily summarizing
+[compaction.md](compaction.md) describes a separate feature: temporarily summarizing
 older history so the current request fits. It adds no persistent memory writes.
 
 ## How recall works

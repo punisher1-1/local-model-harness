@@ -106,7 +106,7 @@ chat: the UI sends `/skill <id>` on every turn and saves the choice with the con
 ## Skills from the chat UI
 
 Besides these repository skills, each identity can keep its own Markdown skills in
-`/chat/` (Settings → Skills; see [frontend/README.md](frontend/README.md#my-skills)).
+`/chat/` (Settings → Skills; see [frontend/README.md](../../frontend/README.md#my-skills)).
 They are stored in the chat database, not in `skills/`, need no profile change or restart,
 and apply only when selected for a chat or project. The harness adds a selected one to
 that request's system prompt after its own rules, as user-authored instructions that

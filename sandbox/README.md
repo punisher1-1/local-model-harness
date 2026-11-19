@@ -1,6 +1,6 @@
 # Python sandbox server (Hermes VM)
 
-This server implements [ADR-003](../docs/ADR-003-code-sandbox.md). It runs on Hermes (the sandbox VM, `<sandbox host>`) and exposes one MCP tool, `python_run`. Each call runs in a fresh
+This server implements [ADR-003](../docs/adr/ADR-003-code-sandbox.md). It runs on Hermes (the sandbox VM, `<sandbox host>`) and exposes one MCP tool, `python_run`. Each call runs in a fresh
 container from `harness-sandbox:py312`, with no network, a read-only root, uid 10001, no
 capabilities, 1 CPU, 512 MB of RAM, 64 processes, 30 seconds and 16 KB of output per
 stream, and the container is removed afterwards. At most two runs happen at once. The
@@ -175,7 +175,7 @@ user with no Docker access and no capabilities, and the systemd unit sandboxes i
 Guards on `web_read`:
 - The harness adapter (`web_mcp.py`) only asks for URLs that a search returned in the same
   request or that the user wrote; it refuses others before they reach this server
-  ([ADR-005](../docs/ADR-005-web-read-seen-urls.md)).
+  ([ADR-005](../docs/adr/ADR-005-web-read-seen-urls.md)).
 - Only http(s) URLs on the default ports, with no credentials in the URL, are accepted.
 - Every address a host resolves to must be public, and that check is repeated after each
   redirect, up to 5. This blocks <lab subnet> and also your other LANs (for example

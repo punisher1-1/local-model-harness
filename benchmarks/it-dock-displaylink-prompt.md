@@ -1,7 +1,7 @@
 # IT troubleshooting: second monitor blank on a DisplayLink dock
 
 A real case from 2026-10-28, used to test the `it-troubleshoot` profile's first reply.
-Results are in [README.md](README.md#it-troubleshooting-displaylink-dock).
+Results are in [results/it-dock-displaylink.md](results/it-dock-displaylink.md).
 
 ## Setup (hold these constant)
 

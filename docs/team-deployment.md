@@ -5,8 +5,8 @@ This guide covers running the harness for a small team that uses one profile, su
 commands, so someone new to self-hosting can follow it. Addresses here are placeholders.
 Keep your real addresses and host names in a private site document, never in this repository.
 
-The README covers the harness itself. [IDENTITY.md](../IDENTITY.md) has the full detail on
-sign-in, and [ADR-008](ADR-008-team-knowledge-base.md) covers the knowledge base design.
+The README covers the harness itself. [identity.md](reference/identity.md) has the full detail on
+sign-in, and [ADR-008](adr/ADR-008-team-knowledge-base.md) covers the knowledge base design.
 
 ## The pieces and how they connect
 
@@ -62,7 +62,7 @@ Generate the access key with the command at the top of `.env.example` and set
 
 ### 2. Turn on sign-in
 
-Follow [IDENTITY.md, "Setting it up"](../IDENTITY.md#setting-it-up). For a team, create two
+Follow [identity.md, "Setting it up"](reference/identity.md#setting-it-up). For a team, create two
 groups in the identity provider instead of the household ones:
 
 - one for everyone who may use the profile (`harness_it` below), and
@@ -113,7 +113,7 @@ docker compose exec -T local-model-harness python scripts/check_config.py && doc
 
 - **Web search:** set `HARNESS_WEB_MCP_URL` and `HARNESS_WEB_MCP_TOKEN` in `.env`, and keep
   `HARNESS_WEB_POLICY=strict`. See [sandbox/README.md](../sandbox/README.md) for running the
-  server, and [ADR-005](ADR-005-web-read-seen-urls.md) for what `strict` blocks.
+  server, and [ADR-005](adr/ADR-005-web-read-seen-urls.md) for what `strict` blocks.
 - **Document attachments:** set `HARNESS_DOCLING_URL` (and `HARNESS_DOCLING_API_KEY` if Docling
   needs one). Without it, only Markdown and text files can be attached.
 - **Time zone:** set `HARNESS_TIMEZONE` (for example `America/Chicago`) so the model gets the
@@ -200,7 +200,7 @@ The sign-in page explains each failure code. The common ones:
 | Message | Usual cause |
 |---|---|
 | no access | The person isn't in a group listed under `role_grants`, or the group's *Name* doesn't match exactly (the identity provider may turn hyphens into underscores). Group changes apply at the next sign-in. |
-| provider unavailable | The harness container can't reach the identity provider by its HTTPS name. Test from inside the container (IDENTITY.md, step 5). |
+| provider unavailable | The harness container can't reach the identity provider by its HTTPS name. Test from inside the container ([identity.md](reference/identity.md), step 5). |
 | expired | The sign-in page sat open more than ten minutes. Try again. |
 
 ## What's built and what's planned

@@ -40,7 +40,7 @@ results can be tied to its contents; keep the corresponding files in version con
 
 All users of the shared harness key can access the same synthetic collection.
 This default lab mode is not tenant isolation or per-user authorization. The opt-in
-JWT scaffold now enforces profile/tool/demo-collection grants; see IDENTITY.md.
+JWT scaffold now enforces profile/tool/demo-collection grants; see [identity.md](identity.md).
 Neither mode grants approval for a private vault.
 Those controls belong before any future sensitive-data integration. Prompt-injection
 instructions in notes remain untrusted data; the model cannot grant itself extra tools.
@@ -115,7 +115,7 @@ an allowlist entry, then test both allowed and denied actions. Never add generic
 `eval`, shell execution, arbitrary URLs or filesystem paths as a convenience bridge.
 For real notes, add trusted user identity and enforce access to the requested note in
 the data service as well as the harness. The future payroll/help desk designs are in
-[ROLE_AGENTS.md](ROLE_AGENTS.md).
+[role-agents.md](../design/role-agents.md).
 
 Reference: [vLLM tool calling](https://docs.vllm.ai/en/latest/features/tool_calling/).
 
@@ -215,7 +215,7 @@ mitigation; they do not establish a zero future failure rate.
 loop. This grants no new tool. The two demo-note tools and their permissions remain
 unchanged. Saved memories can describe preferences or user assertions, but are not
 demo-corpus evidence; the system policy prohibits citing them as demo notes. All
-memory context participates in each round's token count. See MEMORY.md for selection,
+memory context participates in each round's token count. See [memory.md](memory.md) for selection,
 identity scope, failure behavior, diagnostics, deletion and configuration.
 
 
@@ -227,7 +227,7 @@ research tool results are not compacted. Normal per-round context/tool/output li
 remain enforced, and answers disclose when prior history was summarized. External
 reasoning_content/reasoning fields are accepted then discarded before this stage;
 internal planning fields produced during the current tool loop retain their existing
-handling. See COMPACTION.md for failure behavior and bounds.
+handling. See [compaction.md](compaction.md) for failure behavior and bounds.
 
 ## Automatic models and usage — 2026-09-10
 
@@ -237,5 +237,5 @@ The backend still needs the correct tool parser and tokenizer for its model.
 Client-attached tools belong to the new `local-tools` profile, not this internal loop.
 Research SSE now requests usage by default when no stream options are supplied.
 Round prompt counts use backend usage when available; summary work is separately
-reported in `harness_usage`. See [TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md) and
-[TELEMETRY.md](TELEMETRY.md).
+reported in `harness_usage`. See [tools-and-models.md](tools-and-models.md) and
+[telemetry.md](telemetry.md).

@@ -195,11 +195,11 @@ budget. Saved recall uses the latest user text rather than a tool-result body.
 Auto-selected models use their resolved profile window and recipe consistently for
 tokenization, summarization and final generation. Existing Qwen windows in the table
 remain unchanged. Other models are capped to advertised capacity, up to the configured
-131,072 ceiling. See [TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md).
+131,072 ceiling. See [tools-and-models.md](tools-and-models.md).
 
 Standard usage still describes final generation (or internal research rounds).
 `harness_usage` now exposes summary counts and a combined total separately in JSON and
-final SSE usage events. See [TELEMETRY.md](TELEMETRY.md).
+final SSE usage events. See [telemetry.md](telemetry.md).
 
 ## Oversized current tool evidence — 2026-09-11
 
@@ -211,7 +211,7 @@ share an eight-call/180-second work budget on `local-tools`, with evidence input
 capped at 32,768 tokens per chunk, and all source chunks must be processed.
 Small tool results remain unchanged. The tool profile also now uses available backend
 capacity up to its 131,072 ceiling, including for Qwen. Other Qwen windows are unchanged.
-See [BOLTAI_TROUBLESHOOTING.md](BOLTAI_TROUBLESHOOTING.md) for diagnosis and limitations.
+See [boltai-attachments.md](../troubleshooting/boltai-attachments.md) for diagnosis and limitations.
 
 ## 2026-09-25: Longer continuity summaries
 

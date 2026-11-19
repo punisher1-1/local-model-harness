@@ -4,7 +4,7 @@
 # Exact-ID backend_presets preserve tested Qwen behavior without leaking it to MoE models.
 # Qwen sampling source: https://huggingface.co/Qwen/Qwen3.8-27B (checked 2026-09-06).
 # Pin backend_model if multiple IDs are served. Configure each model's parser/template in vLLM.
-# Restart after editing this file. See TOOLS_AND_MODELS.md and TELEMETRY.md.
+# Restart after editing this file. See docs/reference/tools-and-models.md and docs/reference/telemetry.md.
 # Fits a chat that replays attached documents (see documents.py).
 max_request_bytes: 8388608
 max_concurrent_requests: 4
@@ -465,8 +465,8 @@ profiles:
     request_timeout_seconds: 600
 
 # FUTURE(role-agents): demonstration only; these are NOT active profiles.
-# See ROLE_AGENTS.md. Do not uncomment: these role-specific data tools and
-# illustrative fields are not implemented. The opt-in identity scaffold is in IDENTITY.md.
+# See docs/design/role-agents.md. Do not uncomment: these role-specific data tools and
+# illustrative fields are not implemented. The opt-in identity scaffold is in docs/reference/identity.md.
 # A profile name selects a workflow; it never grants the caller a role.
 #
 # payroll-assistant:

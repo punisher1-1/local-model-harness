@@ -22,7 +22,7 @@ NAMES = frozenset({"web_context", "web_search", "web_read"})
 TEXT_CAP = 16000
 CONTEXT_CAP = 32000
 # web_read fetches only URLs the harness has already seen in this request, so a model steered
-# by injected text cannot put private data into a URL of its own making (docs/ADR-005).
+# by injected text cannot put private data into a URL of its own making (docs/adr/ADR-005).
 MAX_USER_URLS = 20
 MAX_PAGE_LINKS = 50
 # strict (default): no page links, and user-written URLs stop working once private data was read.

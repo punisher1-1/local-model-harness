@@ -2,7 +2,7 @@
 
 A real case from 2026-11-04, used to test the `it-troubleshoot` profile's first reply when
 the model must reason from a pasted log. Results are in
-[README.md](README.md#it-troubleshooting-intune-rename-rpc-error).
+[results/it-rename-rpc.md](results/it-rename-rpc.md).
 
 The domain name, the computer-name prefix and the serial numbers are replaced with stand-ins. The letter case of the
 placeholder name is kept, because the mixed-case versus all-caps difference is part of the log.
@@ -119,7 +119,7 @@ ten.
 
 ## Triage checks (ADR-007)
 
-Added 2026-11-08 with `docs/ADR-007-triage-within-access.md`. Score them alongside checks
+Added 2026-11-08 with `docs/adr/ADR-007-triage-within-access.md`. Score them alongside checks
 1–5 for runs on harness `358d8a0` and later, and say in the results which checks were used.
 Score each case at the lowest tier that would realistically get the ticket.
 

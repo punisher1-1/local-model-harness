@@ -88,7 +88,7 @@ summarized as explicitly lossy evidence; current user text and call IDs/argument
 verbatim. Older complete exchanges can be summarized
 as quoted JSON data; they are never replayed as executable calls. Tool schemas are
 included in exact token counts. Oversized questions/schemas and work-limit failures
-can still be rejected. See [BOLTAI_TROUBLESHOOTING.md](BOLTAI_TROUBLESHOOTING.md). The summary model never receives executable tools.
+can still be rejected. See [boltai-attachments.md](../troubleshooting/boltai-attachments.md). The summary model never receives executable tools.
 Memory recall uses the most recent **user** text even when the request ends with a
 tool result; recalled context is attached to that user turn, never forged into a tool
 result. This does not enable automatic memory saving. UI memory tools store wherever

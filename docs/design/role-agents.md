@@ -1,9 +1,9 @@
 # Future role-scoped agents
 
 Status: payroll/help desk scenarios are design notes. The identity/profile/tool
-authorization scaffold is now implemented; see IDENTITY.md for its boundaries.
+authorization scaffold is now implemented; see [identity.md](../reference/identity.md) for its boundaries.
 The payroll/help desk designs remain inactive. The separate `local-research` demo
-now executes two read-only tools over synthetic notes; see RESEARCH.md.
+now executes two read-only tools over synthetic notes; see [research.md](../reference/research.md).
 Search the template for `FUTURE(role-agents)` to find the corresponding comments.
 
 ## Concept

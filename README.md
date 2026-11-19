@@ -45,10 +45,10 @@ untracked `profiles.local.yaml`, mounted over `profiles.yaml` by
   projects with default profile/workflow/tools, per-chat tool chips, your own
   Markdown skills, and document attachments. See [frontend/README.md](frontend/README.md).
 - **Harness-run tools** over MCP, chosen per chat with the `X-Harness-MCP` header:
-  - **Vault** – read-only search and reading of an Obsidian vault ([MCP_VAULT.md](MCP_VAULT.md)).
+  - **Vault** – read-only search and reading of an Obsidian vault ([vault-mcp.md](docs/reference/vault-mcp.md)).
   - **Python sandbox** – each run is a fresh, networkless container; answers that
     depend on derived numbers must compute them, and the number check flags figures no
-    run printed ([docs/ADR-003-code-sandbox.md](docs/ADR-003-code-sandbox.md),
+    run printed ([ADR-003-code-sandbox.md](docs/adr/ADR-003-code-sandbox.md),
     [sandbox/README.md](sandbox/README.md)).
   - **Web search** – Brave search, LLM-context passages and page reads; private and LAN
     addresses are refused. Off by default because it spends paid credits.
@@ -58,25 +58,25 @@ untracked `profiles.local.yaml`, mounted over `profiles.yaml` by
   - **Team knowledge base** – `kb_search` and `kb_read` over short articles kept in the
     harness's own SQLite file and searched by keyword. Signed-in editors write and publish
     them in Settings > Knowledge base; only published articles reach the model. Off unless
-    a profile turns it on ([ADR-008](docs/ADR-008-team-knowledge-base.md)).
+    a profile turns it on ([ADR-008](docs/adr/ADR-008-team-knowledge-base.md)).
 - **Client tools** – `local-tools` accepts OpenAI function schemas from BoltAI or Open
-  WebUI and returns tool calls for the client to execute ([TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md)).
+  WebUI and returns tool calls for the client to execute ([tools-and-models.md](docs/reference/tools-and-models.md)).
 - **Skills / workflows** – trusted repository Markdown in `skills/`, selected per
   profile or with `/skill <id>`; users can add their own, and share them with an
-  identity group ([SKILLS.md](SKILLS.md)).
+  identity group ([skills.md](docs/reference/skills.md)).
 - **Persistent memory** – scoped ParadeDB storage with bounded read-only recall and
   explicit saves (`Remember: fact: …`); nothing is captured automatically. Manage
-  memories at `/memory` or in `/chat/` ([MEMORY.md](MEMORY.md), [ADR-002](docs/ADR-002-persistent-memory.md)).
+  memories at `/memory` or in `/chat/` ([memory.md](docs/reference/memory.md), [ADR-002](docs/adr/ADR-002-persistent-memory.md)).
 - **Document attachments** – Markdown and text natively; PDF, Word, PowerPoint, Excel
   and HTML through Docling Serve.
 - **Context compaction** – near the limit, older turns are summarized for that request
-  only and a notice is shown ([COMPACTION.md](COMPACTION.md)).
+  only and a notice is shown ([compaction.md](docs/reference/compaction.md)).
 - **Identity** – shared service key by default; JWT mode; or OIDC mode with passkey
   sign-in (e.g. Pocket ID) that gives each person their own chats, projects, skills and
-  grants ([IDENTITY.md](IDENTITY.md), [ADR-004](docs/ADR-004-oidc-sign-in.md)).
+  grants ([identity.md](docs/reference/identity.md), [ADR-004](docs/adr/ADR-004-oidc-sign-in.md)).
 - **Traceability** – tool answers end with a run line naming the model, profile and
   harness commit; logs record metadata only, never prompt or response text
-  ([TELEMETRY.md](TELEMETRY.md)).
+  ([telemetry.md](docs/reference/telemetry.md)).
 
 ## Quick start
 
@@ -143,7 +143,7 @@ the client's container, not its `localhost`.
 - In Open WebUI, turn off Built-in Tools for profiles other than `local-tools`; those
   profiles reject tool definitions. Client system prompts are discarded by default.
 - BoltAI's replayed `reasoning_content` is accepted and dropped. For attachment and
-  oversized-page issues see [BOLTAI_TROUBLESHOOTING.md](BOLTAI_TROUBLESHOOTING.md).
+  oversized-page issues see [boltai-attachments.md](docs/troubleshooting/boltai-attachments.md).
 
 ## Configuration
 
@@ -195,17 +195,19 @@ skip when their services are absent. Benchmark prompts and recorded runs are in
 
 ## Further reading
 
+[docs/README.md](docs/README.md) lists every page, grouped by kind. The most used ones:
+
 | Topic | Document |
 |---|---|
-| Tool loop and demo research profile | [RESEARCH.md](RESEARCH.md) |
-| Client tools and model selection | [TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md) |
-| Vault MCP and per-chat server choice | [MCP_VAULT.md](MCP_VAULT.md) |
-| Sandbox and web servers | [sandbox/README.md](sandbox/README.md) |
-| Memory | [MEMORY.md](MEMORY.md) |
-| Skills | [SKILLS.md](SKILLS.md) |
-| Compaction | [COMPACTION.md](COMPACTION.md) |
 | Running it for a team (sign-in, team knowledge base, backups) | [docs/team-deployment.md](docs/team-deployment.md) |
-| Identity and sign-in | [IDENTITY.md](IDENTITY.md) |
-| Usage, KV cache and metrics | [TELEMETRY.md](TELEMETRY.md) |
-| Role-scoped agents (design only) | [ROLE_AGENTS.md](ROLE_AGENTS.md) |
-| Design decisions | [docs/](docs/) |
+| Identity and sign-in | [docs/reference/identity.md](docs/reference/identity.md) |
+| Client tools and model selection | [docs/reference/tools-and-models.md](docs/reference/tools-and-models.md) |
+| Vault MCP and per-chat server choice | [docs/reference/vault-mcp.md](docs/reference/vault-mcp.md) |
+| Sandbox and web servers | [sandbox/README.md](sandbox/README.md) |
+| Memory | [docs/reference/memory.md](docs/reference/memory.md) |
+| Skills | [docs/reference/skills.md](docs/reference/skills.md) |
+| Compaction | [docs/reference/compaction.md](docs/reference/compaction.md) |
+| Tool loop and demo research profile | [docs/reference/research.md](docs/reference/research.md) |
+| Usage, KV cache and metrics | [docs/reference/telemetry.md](docs/reference/telemetry.md) |
+| Design decisions (ADRs) | [docs/adr/](docs/adr/) |
+| Role-scoped agents (design only) | [docs/design/role-agents.md](docs/design/role-agents.md) |

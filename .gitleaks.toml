@@ -14,6 +14,6 @@ description = "Fake values used by the tests and docs, not secrets"
 regexes = [
   # API key used only by the test suite (tests/test_app.py, tests/test_oidc.py)
   '''^test-key-for-harness-1234567890$''',
-  # Example idempotency_key UUID in MEMORY.md
+  # Example idempotency_key UUID in docs/reference/memory.md
   '''^db0664c8-c612-4a01-81c0-c82036b58747$''',
 ]

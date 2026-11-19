@@ -1,4 +1,4 @@
-# OIDC sign-in with Pocket ID (docs/ADR-004-oidc-sign-in.md, IDENTITY.md "OIDC mode").
+# OIDC sign-in with Pocket ID (docs/adr/ADR-004-oidc-sign-in.md, docs/reference/identity.md "OIDC mode").
 # Copy to identity-config/identity.yaml on the harness host and set
 # HARNESS_IDENTITY_CONFIG=/app/identity-config/identity.yaml in .env.
 mode: oidc

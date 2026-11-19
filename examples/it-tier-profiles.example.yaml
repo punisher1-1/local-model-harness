@@ -1,4 +1,4 @@
-# Tier profiles for the IT troubleshooting assistant (docs/ADR-007-triage-within-access.md, section 7).
+# Tier profiles for the IT troubleshooting assistant (docs/adr/ADR-007-triage-within-access.md, section 7).
 #
 # Every tier uses the same prompt and skills as it-troubleshoot. Only two things differ:
 # what the technician can access, and who the next level up is. Both go in `rules`, which

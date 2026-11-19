@@ -40,7 +40,7 @@ there are raw grants; actual use also requires profile and collection permission
 
 ## OIDC mode: people sign in with Pocket ID (ADR-004)
 
-[ADR-004](docs/ADR-004-oidc-sign-in.md) adds `mode: oidc`. People click **Sign in with
+[ADR-004](../adr/ADR-004-oidc-sign-in.md) adds `mode: oidc`. People click **Sign in with
 Pocket ID** in `/chat/` and use a passkey (Face ID or Touch ID). The harness runs the
 authorization code flow with PKCE, state and nonce, exchanges the code server-side,
 verifies the ID token, and issues its usual HttpOnly session cookie. Tokens never reach
@@ -74,7 +74,7 @@ Failed sign-ins return to `/chat/?auth_error=<code>`, which the page explains:
 3. **Add an OIDC client** named Local Model Harness, with callback URL
    `http://<harness host>:8200/v1/auth/callback` (or your HTTPS harness URL). Allow it for
    both groups. Copy the client ID and secret.
-4. **On the harness host**, copy [examples/identity.oidc.example.yaml](examples/identity.oidc.example.yaml)
+4. **On the harness host**, copy [examples/identity.oidc.example.yaml](../../examples/identity.oidc.example.yaml)
    to `identity-config/identity.yaml`, set `issuer`, `client_id` and `redirect_uri`, and
    check the profile names and memory scopes. In `.env` set
    `HARNESS_IDENTITY_CONFIG=/app/identity-config/identity.yaml` and
@@ -117,7 +117,7 @@ these based on the issuer's **access token** contract. Do not use a UI's ID toke
 or session JWT as a substitute. Give the API its own audience distinct from the
 UI registration, and choose user vs workload authorization explicitly.
 
-See [examples/identity.jwt.example.yaml](examples/identity.jwt.example.yaml).
+See [examples/identity.jwt.example.yaml](../../examples/identity.jwt.example.yaml).
 The public JWKS file contains a `keys` array of RSA public JWKs with unique `kid`
 values, optionally `alg: RS256`, `use: sig`, and `key_ops: [verify]`. Private key
 material is rejected at startup. Relative `jwks_file` paths resolve beside the
@@ -165,7 +165,7 @@ operational key refresh and revocation require a later provider-specific integra
 
 The collection permission currently covers **the entire synthetic demo catalog**.
 There are no caller-owned tickets, payroll data or document ACLs yet. The separate
-[explicit memory API](MEMORY.md) now uses principal-derived owner scopes and forced
+[explicit memory API](memory.md) now uses principal-derived owner scopes and forced
 row-level security. Do not treat `demo_notes` as a general private-data
 permission. Resource checks must also exist in a future data service. TLS, network
 isolation, rate limiting, token acquisition and audit retention remain deployment
@@ -229,7 +229,7 @@ The live lab remains in shared-key mode. The owner explicitly opted into
 `allow_shared_service_identity: true` in the separate memory configuration, granting
 all three operations to `lab-service`. Every key holder shares that scope. Changing
 to JWT mode does not automatically transfer or reveal service-owned records.
-`/v1/identity` reports effective memory permissions; see MEMORY.md for transport,
+`/v1/identity` reports effective memory permissions; see [memory.md](memory.md) for transport,
 retention, backups and the limits of application-set database identity context.
 
 ## Client-tool transport and operator metrics — 2026-09-10
@@ -252,7 +252,7 @@ client_tools: true
 backend_metrics: true
 ```
 
-See [TOOLS_AND_MODELS.md](TOOLS_AND_MODELS.md) and [TELEMETRY.md](TELEMETRY.md).
+See [tools-and-models.md](tools-and-models.md) and [telemetry.md](telemetry.md).
 
 ### Memory scope grants
 
@@ -260,4 +260,4 @@ JWT role grants may include `memory_scopes: [home]` or `[work]`; this is separat
 from `memory_permissions` and profile access. Existing grants default to legacy.
 Grant the matching `local-home` or `local-work` profile as needed. A single shared
 service key still accesses all configured scopes and is not a per-person boundary.
-See MEMORY.md for namespace mapping and the management request header.
+See [memory.md](memory.md) for namespace mapping and the management request header.

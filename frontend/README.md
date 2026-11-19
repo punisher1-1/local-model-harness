@@ -8,7 +8,7 @@ Code layout: `src/App.jsx` owns sign-in state, projects, conversations and strea
 
 Build/rebuild the harness Docker image, then open `http://<harness-host>:8200/chat/`. Enter an existing harness API key or access token. Use HTTPS through your trusted reverse proxy when sending credentials over a network.
 
-Choose an authorized profile and optionally a workflow. Workflow and tool choices stick to the chat, and each one is saved with the chat. The workflow picker shows each skill's title and first sentence, and the chosen workflow is sent as `/skill <id>` on every turn. Automatic leaves selection to the harness. On profiles with harness MCP servers, a Tools row turns each server on or off for the chat. The choice is sent as `X-Harness-MCP`; new chats start from the profile's `mcp_default`. See [MCP_VAULT.md](../MCP_VAULT.md). Profiles lock after the first message; start a new chat to switch. The server remains responsible for permissions, prompts, memory, generation settings, and compaction.
+Choose an authorized profile and optionally a workflow. Workflow and tool choices stick to the chat, and each one is saved with the chat. The workflow picker shows each skill's title and first sentence, and the chosen workflow is sent as `/skill <id>` on every turn. Automatic leaves selection to the harness. On profiles with harness MCP servers, a Tools row turns each server on or off for the chat. The choice is sent as `X-Harness-MCP`; new chats start from the profile's `mcp_default`. See [vault-mcp.md](../docs/reference/vault-mcp.md). Profiles lock after the first message; start a new chat to switch. The server remains responsible for permissions, prompts, memory, generation settings, and compaction.
 
 ### Quick skill buttons
 
