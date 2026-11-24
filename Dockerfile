@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt && useradd --uid 10001 --create-home harness
 COPY app.py research.py identity.py memory.py compaction.py backend.py client_tools.py telemetry.py profiles.yaml ./
-COPY memory_ui.py chat_memory.py skill_loader.py chat_ui.py conversation_store.py vault_mcp.py sessions.py mcp_registry.py mcp_client.py code_mcp.py web_mcp.py rag_tool.py kb_store.py log_condense.py evtx_text.py oidc.py number_check.py documents.py ./
+COPY memory_ui.py chat_memory.py skill_loader.py chat_ui.py conversation_store.py vault_mcp.py sessions.py mcp_registry.py mcp_client.py code_mcp.py web_mcp.py rag_tool.py kb_store.py log_condense.py evtx_text.py oidc.py number_check.py documents.py decision_gate.py ./
 COPY --from=frontend /frontend/dist ./frontend/dist
 COPY skills ./skills
 COPY memory_ui ./memory_ui

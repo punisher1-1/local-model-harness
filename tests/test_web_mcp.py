@@ -50,7 +50,7 @@ def test_results_are_capped_and_errors_normalized(env, monkeypatch):
         found = await store.execute("web_search", {"query": "proxmox"})
         assert len(found["results"]) == 8 and len(found["results"][0]["title"]) == 200 and "x" not in found["results"][0]
         assert found["results"][0]["extra_snippets"] == ["1", "2", "3"]
-        replies.append({"url": "https://a.example/", "title": "T", "text": "y" * 40000})
+        replies.append({"url": "https://a.example/", "title": "T", "text": "y" * 60000})
         page = await store.execute("web_read", {"url": "https://a.example"})
         assert len(page["text"]) == TEXT_CAP and page["truncated"]
         assert (await store.execute("web_context", {"query": "x", "max_tokens": 50000}))["error"] == "invalid_arguments"
@@ -379,3 +379,22 @@ def test_descriptions_steer_questions_to_web_context():
     assert described["web_context"].startswith("Default web tool for answering questions.")
     assert "use web_context instead" in described["web_search"]
     assert [t["function"]["name"] for t in SCHEMAS][0] == "web_context"
+
+
+def test_read_chars_setting(env, monkeypatch):
+    import web_mcp
+    assert WebStore().text_cap == web_mcp.DEFAULT_READ_CHARS == 48000
+    monkeypatch.setenv("HARNESS_WEB_READ_CHARS", "8000")
+    store = WebStore()
+    assert store.text_cap == 8000
+
+    async def fake(name, args):
+        return {"url": "https://a.example/", "title": "T", "text": "y" * 9000}
+    monkeypatch.setattr(store, "call", fake)
+    store.user_urls.add("https://a.example/")
+    page = asyncio.run(store.execute("web_read", {"url": "https://a.example/"}))
+    assert len(page["text"]) == 8000 and page["truncated"]
+    for bad in ("3999", "120001", "lots"):
+        monkeypatch.setenv("HARNESS_WEB_READ_CHARS", bad)
+        with pytest.raises(ValueError, match="HARNESS_WEB_READ_CHARS"):
+            WebStore()

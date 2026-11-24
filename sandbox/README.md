@@ -145,6 +145,31 @@ cd sandbox && sudo -u sandbox -g docker /opt/harness-sandbox-venv/bin/python sel
 systemctl restart harness-sandbox
 ```
 
+## Settings
+
+Both servers read optional settings from their env file (`/etc/harness-sandbox.env`,
+`/etc/harness-web.env`). The defaults below are what the setup steps assume; change them
+only with a reason.
+
+| Variable | Server | Default | What it controls |
+|---|---|---|---|
+| `SANDBOX_TOKEN` | sandbox | (required) | Bearer token the harness must send |
+| `SANDBOX_ALLOWED_HOSTS` | sandbox | `127.0.0.1:*,localhost:*` | Host headers the MCP transport accepts |
+| `SANDBOX_BIND` | sandbox | `0.0.0.0` | Listen address |
+| `SANDBOX_PORT` | sandbox | `8202` | Listen port (match the ufw rule) |
+| `SANDBOX_IMAGE` | sandbox | `harness-sandbox:py312` | Runner image each call starts |
+| `SANDBOX_DOCKER` | sandbox | `docker` | Docker CLI to invoke |
+| `SANDBOX_TIMEOUT_SECONDS` | sandbox | `30` | Wall-clock limit per run |
+| `SANDBOX_MAX_CONCURRENT` | sandbox | `2` | Runs allowed at once |
+| `WEB_TOKEN` | web | (required) | Bearer token the harness must send |
+| `WEB_ALLOWED_HOSTS` | web | `127.0.0.1:*,localhost:*` | Host headers the MCP transport accepts |
+| `WEB_BIND` | web | `0.0.0.0` | Listen address |
+| `WEB_PORT` | web | `8203` | Listen port (match the ufw rule) |
+| `WEB_MAX_CONCURRENT` | web | `4` | Calls allowed at once |
+| `WEB_DAILY_SEARCH_LIMIT` | web | `300` | Searches per UTC day |
+| `WEB_READ_CHARS` | web | `48000` | Characters of one page `web_read` returns (4,000 to 120,000). The harness applies its own `HARNESS_WEB_READ_CHARS` too; the smaller wins |
+| `BRAVE_API_KEY` | web | (required for search) | Brave Search API key |
+
 ## Operations
 
 - **Logs:** `journalctl -u harness-sandbox`. One JSON line per run, with metadata only.
@@ -165,7 +190,8 @@ systemctl restart harness-sandbox
   plan, and counts against the same daily limit as `web_search`.
 - `web_search` queries the Brave Search API and returns up to 8 results, each with a title,
   URL, snippet, up to three extra snippets and its age.
-- `web_read` fetches one public page and returns up to 16,000 characters of readable text,
+- `web_read` fetches one public page and returns up to `WEB_READ_CHARS` characters of readable
+  text (default 48,000, enough for a typical GitHub release page),
   plus up to 50 of its links (absolute http(s), outside navigation and footers). The harness
   shows the links to the model only under `HARNESS_WEB_POLICY=home`.
 

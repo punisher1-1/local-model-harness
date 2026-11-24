@@ -78,7 +78,9 @@ def test_folder_listing_grants_only_safe_in_folder_reads(monkeypatch):
     asyncio.run(run())
 
 
-def test_two_discoveries_reserve_a_read(tmp_path,monkeypatch):
+# Real vLLM answers a forced, named tool_choice with finish_reason "stop" (like the OpenAI API).
+@pytest.mark.parametrize('forced_finish',['tool_calls','stop'])
+def test_two_discoveries_reserve_a_read(tmp_path,monkeypatch,forced_finish):
     monkeypatch.setenv('HARNESS_VAULT_MCP_URL','http://vault/mcp')
     rounds=[];calls=[]
     async def fake(self,name,args):
@@ -92,12 +94,26 @@ def test_two_discoveries_reserve_a_read(tmp_path,monkeypatch):
         if n==3:
             assert body['tool_choice']=={'type':'function','function':{'name':'vault_read_note'}}
             assert [x['function']['name'] for x in body['tools']]==['vault_read_note']
-            return completion({'role':'assistant','tool_calls':[tool('vault_read_note',{'path':'Course/Unit 5/Prompt.md'},'call3')]},'tool_calls')
+            return completion({'role':'assistant','tool_calls':[tool('vault_read_note',{'path':'Course/Unit 5/Prompt.md'},'call3')]},forced_finish)
         return completion({'role':'assistant','content':'Read the full prompt.'})
     c,_=setup(tmp_path,{'client_tools':True,'mcp_vault':True},handler=backend)
     with c:
         assert ask(c).status_code==200
     assert calls==['vault_search','vault_search','vault_read_note']
+
+
+def test_unforced_tool_call_with_stop_is_still_rejected(tmp_path,monkeypatch):
+    monkeypatch.setenv('HARNESS_VAULT_MCP_URL','http://vault/mcp')
+    async def fake(self,name,args):
+        return {'results':[{'path':'Course/Unit 5/Prompt.md'}]}
+    monkeypatch.setattr(VaultStore,'call',fake)
+    def backend(request):
+        if request.url.path!='/v1/chat/completions':return None
+        return completion({'role':'assistant','tool_calls':[tool('vault_search',{'query':'prompt'})]},'stop')
+    c,_=setup(tmp_path,{'client_tools':True,'mcp_vault':True},handler=backend)
+    with c:
+        r=ask(c)
+        assert r.status_code==502 and 'malformed_tool_completion' in r.text
 
 
 def test_create_and_append_are_the_only_writes(monkeypatch):

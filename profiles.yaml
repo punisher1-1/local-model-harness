@@ -58,6 +58,16 @@ profiles:
             enable_thinking: true
             reasoning_effort: low
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 16384
+        backend_options:
+          chat_template_kwargs:
+            reasoning_effort: low
   local-creative:
     chat_memory: true
     compaction:
@@ -99,6 +109,16 @@ profiles:
             enable_thinking: true
             reasoning_effort: low
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 16384
+        backend_options:
+          chat_template_kwargs:
+            reasoning_effort: low
   local-research:
     compaction:
       enabled: true
@@ -148,6 +168,16 @@ profiles:
             enable_thinking: true
             reasoning_effort: low
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 32768
+        backend_options:
+          chat_template_kwargs:
+            reasoning_effort: low
   local-tools:
     mcp_servers: [vault, code, web, rag]
     # Lists answer numbers that no python_run output printed; see number_check.py.
@@ -210,6 +240,17 @@ profiles:
             enable_thinking: true
             reasoning_effort: medium
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 131072
+        backend_options:
+          thinking_token_budget: 4096
+          chat_template_kwargs:
+            reasoning_effort: medium
     client_tools: true
     request_timeout_seconds: 600
 
@@ -274,6 +315,17 @@ profiles:
             enable_thinking: true
             reasoning_effort: low
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        thinking_budget_ratio: 0.25
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 131072
+        backend_options:
+          chat_template_kwargs:
+            reasoning_effort: low
     client_tools: true
     request_timeout_seconds: 600
 
@@ -338,6 +390,17 @@ profiles:
             enable_thinking: true
             reasoning_effort: low
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        thinking_budget_ratio: 0.25
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 32768
+        backend_options:
+          chat_template_kwargs:
+            reasoning_effort: low
     client_tools: true
     request_timeout_seconds: 600
 
@@ -404,6 +467,17 @@ profiles:
             enable_thinking: true
             reasoning_effort: medium
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 131072
+        backend_options:
+          thinking_token_budget: 4096
+          chat_template_kwargs:
+            reasoning_effort: medium
     client_tools: true
     request_timeout_seconds: 600
 
@@ -461,6 +535,17 @@ profiles:
             enable_thinking: true
             reasoning_effort: medium
             preserve_thinking: false
+      inkling-2-mini:
+        # Inkling 2 Mini (needs vLLM >= 0.35 with --served-model-name inkling-2-mini).
+        # Official sampling is temperature 1.0 only; Qwen's extras are not carried over.
+        temperature: 1.0
+        top_p: null
+        presence_penalty: null
+        context_window: 131072
+        backend_options:
+          thinking_token_budget: 4096
+          chat_template_kwargs:
+            reasoning_effort: medium
     client_tools: true
     request_timeout_seconds: 600
 

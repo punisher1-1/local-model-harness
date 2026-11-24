@@ -48,7 +48,8 @@ the harness rules above, and where it conflicts with them those rules win.
 {content}"""
 from mcp_registry import HEADER as MCP_HEADER, known as known_mcp, validate_startup as validate_mcp, selected_servers, request_prompt as mcp_prompt, catalog as mcp_catalog
 from backend import BackendPreset, catalog, resolve_profile, runtime_headers, thinking_budget
-from chat_memory import chat_save_response, RULES as CHAT_MEMORY_RULES
+from chat_memory import chat_save_response, is_command as is_save_command, not_saved_note, RULES as CHAT_MEMORY_RULES
+from decision_gate import DecisionPolicy, decide, decision_headers
 from client_tools import ToolCall, ToolDefinition, NamedChoice, prepare_history, RULES as CLIENT_TOOL_RULES
 from telemetry import backend_metrics, record_usage, attach_accounting
 from research import ResearchPolicy, NoteStore, research_response, strip_footer, run_line
@@ -129,6 +130,8 @@ class Profile(BaseModel):
     # Condense attached logs (repeats, boilerplate, routine lines) before sending; see log_condense.py.
     log_condense: bool = False
     memory_recall: RecallPolicy = Field(default_factory=RecallPolicy)
+    # Small decision model that can skip memory recall or drop tools a turn does not need.
+    decision_gate: DecisionPolicy = Field(default_factory=DecisionPolicy)
     compaction: CompactionPolicy = Field(default_factory=CompactionPolicy)
 
     @field_validator("default_skill", mode="before")
@@ -180,6 +183,12 @@ class Profile(BaseModel):
             raise ValueError("Tool evidence summarization requires a client-tools profile")
         if self.chat_memory and not self.memory_recall.enabled:
             raise ValueError("Chat memory saves require a configured recall scope")
+        if set(self.decision_gate.servers) - set(self.mcp_servers):
+            raise ValueError("decision_gate.servers may only name servers listed in mcp_servers")
+        if self.decision_gate.skills and (not self.skills or self.default_skill is not None):
+            raise ValueError("decision_gate.skills needs a profile with skills and no default_skill (Automatic)")
+        if {k[6:] for k in self.decision_gate.questions if k.startswith("skill:")} - set(self.skills):
+            raise ValueError("decision_gate.questions may only name skills listed in skills")
         if self.compaction.enabled:
             if self.token_count_mode != "vllm" or self.overflow != "reject":
                 raise ValueError("Compaction requires exact vLLM counting and reject overflow")
@@ -251,6 +260,9 @@ class LoadedProfiles:
     fingerprints: dict
     research_stores: dict
     skill_info: dict
+    # Profiles whose decision gate picks skills: {profile: {"" or skill id: prompt / fingerprint}}.
+    skill_prompts: dict
+    skill_fingerprints: dict
 
 
 def load_profiles(path):
@@ -264,30 +276,41 @@ def load_profiles(path):
     research_stores = {}
     prompts = {}
     fingerprints = {}
+    skill_prompts = {}
+    skill_fingerprints = {}
     for name, profile in settings.profiles.items():
         if profile.backend_model.startswith("REPLACE_"):
             raise RuntimeError(f"Configure backend_model for profile {name}")
         prompt = (path.parent / profile.system_prompt_file).read_text().strip()
         if not prompt:
             raise RuntimeError(f"Empty system prompt for {name}")
-        prompts[name] = prompt + "\n\nRules:\n" + "\n".join(f"- {r}" for r in profile.rules)
-        prompts[name] += load_skills(path.parent, profile)
+        base = prompt + "\n\nRules:\n" + "\n".join(f"- {r}" for r in profile.rules)
         # MCP rules are added per request, only for the servers actually selected.
         validate_mcp(profile.mcp_servers)
+        tail = ""
         if profile.client_tools:
-            prompts[name] += "\n\n" + CLIENT_TOOL_RULES
+            tail += "\n\n" + CLIENT_TOOL_RULES
         if profile.compaction.enabled:
-            prompts[name] += "\n\n" + CONTEXT_RULES
+            tail += "\n\n" + CONTEXT_RULES
         if profile.memory_recall.enabled:
-            prompts[name] += "\n\n" + RECALL_RULES
+            tail += "\n\n" + RECALL_RULES
         if profile.chat_memory:
-            prompts[name] += "\n\n" + CHAT_MEMORY_RULES
+            tail += "\n\n" + CHAT_MEMORY_RULES
         if profile.research:
             research_stores[name] = NoteStore(path.parent, profile.research.notes_directory)
-        fingerprints[name] = hashlib.sha256(json.dumps({"profile": profile.model_dump(), "prompt": prompts[name]}, sort_keys=True).encode()).hexdigest()
+
+        def fingerprint(text):
+            return hashlib.sha256(json.dumps({"profile": profile.model_dump(), "prompt": text}, sort_keys=True).encode()).hexdigest()
+        prompts[name] = base + load_skills(path.parent, profile) + tail
+        fingerprints[name] = fingerprint(prompts[name])
+        if profile.decision_gate.enabled and profile.decision_gate.skills:
+            # One prompt per possible choice: no skill, or exactly one.
+            skill_prompts[name] = {only: base + load_skills(path.parent, profile, only) + tail for only in ["", *profile.skills]}
+            skill_fingerprints[name] = {only: fingerprint(text) for only, text in skill_prompts[name].items()}
     skill_info = {s: describe_skill(path.parent, s) for p in settings.profiles.values() for s in p.skills}
     return LoadedProfiles(settings=settings, prompts=prompts, fingerprints=fingerprints,
-                          research_stores=research_stores, skill_info=skill_info)
+                          research_stores=research_stores, skill_info=skill_info,
+                          skill_prompts=skill_prompts, skill_fingerprints=skill_fingerprints)
 
 
 def unusable_grants(config, profiles):
@@ -325,6 +348,20 @@ def today_line(zone):
     return f"\n\nToday's date is {datetime.now(zone):%A, %Y-%m-%d} ({zone.key})."
 
 
+def decision_settings(profiles):
+    """Decision model URL (ending in /v1) and optional API key; None when no profile uses the gate."""
+    url = os.getenv("HARNESS_DECISION_URL", "").strip().rstrip("/")
+    if not url:
+        if any(p.decision_gate.enabled for p in profiles.values()):
+            log.warning(json.dumps({"event": "decision_gate", "status": "not_configured",
+                                    "detail": "a profile enables decision_gate but HARNESS_DECISION_URL is empty; requests run ungated"}))
+        return None, None
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.query or parsed.fragment or not parsed.path.endswith("/v1"):
+        raise RuntimeError("HARNESS_DECISION_URL must be an http(s) URL ending in /v1, without credentials/query")
+    return url, os.getenv("HARNESS_DECISION_API_KEY") or None
+
+
 def create_app(config_path=None, api_key=None, backend_url=None, transport=None, identity_path=None, memory_path=None, oidc_transport=None, docling_transport=None):
     @asynccontextmanager
     async def lifespan(app):
@@ -343,6 +380,8 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
             raise RuntimeError("GEN_URL must be an http(s) URL ending in /v1, without credentials/query")
         app.state.research_stores = loaded.research_stores
         app.state.skill_info = loaded.skill_info
+        app.state.skill_prompts = loaded.skill_prompts
+        app.state.skill_fingerprints = loaded.skill_fingerprints
         app.state.settings = settings
         app.state.key = key
         app.state.prompts = loaded.prompts
@@ -354,6 +393,11 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
         async with httpx.AsyncClient(headers=headers, timeout=settings.request_timeout_seconds, transport=transport, trust_env=False, follow_redirects=False) as client:
             app.state.client = client
             app.state.url = url
+            app.state.decision_url, decision_key = decision_settings(settings.profiles)
+            # Its own client, so the generation API key is never sent to the decision model.
+            app.state.decision_client = httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {decision_key}"} if decision_key else {},
+                timeout=10, transport=transport, trust_env=False, follow_redirects=False)
             memory_config_path = memory_path or os.getenv("HARNESS_MEMORY_CONFIG")
             app.state.memory = MemoryStore(MemoryConfig.load(memory_config_path)) if memory_config_path else None
             try:
@@ -361,6 +405,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                     await app.state.memory.pool.open()
                 yield
             finally:
+                await app.state.decision_client.aclose()
                 if app.state.memory:
                     await app.state.memory.pool.close()
 
@@ -487,6 +532,23 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
         servers = selected_servers(profile, request.headers.get(MCP_HEADER))
         # Client-attached tools and an explicit tool_choice of none take precedence over harness MCP.
         servers = servers if not tool_payload.get("tools") and body.tool_choice != "none" else ()
+        # A memory save command is answered by the harness without generation; nothing to decide.
+        saving = profile.chat_memory and history and history[-1]["role"] == "user" and is_save_command(history[-1]["content"])
+        recall_on = profile.memory_recall.enabled
+        # Skills are chosen only on Automatic: no /skill command, no default, no personal skill.
+        skill_candidates = profile.skills if (profile.decision_gate.skills and selected_skill == "auto" and profile.default_skill is None
+                                              and request.headers.get(USER_SKILL_HEADER) is None) else []
+        if saving:
+            decision_state = {"status": "not_needed", "scores": {}, "skipped": []}
+        else:
+            # A workflow chosen with /skill (or the picker), or the profile's default, applies regardless.
+            pinned_skill = selected_skill if selected_skill not in {"auto", "none"} else (
+                profile.default_skill if selected_skill == "auto" and request.headers.get(USER_SKILL_HEADER) is None else None)
+            servers, recall_on, chosen_skill, decision_state = await decide(app, profile, history, servers, recall_on,
+                                                                            skill_candidates, pinned_skill)
+            if chosen_skill is not None:
+                system_prompt = app.state.skill_prompts[body.model][chosen_skill]
+                profile_fingerprint = app.state.skill_fingerprints[body.model][chosen_skill]
         system_prompt, profile_fingerprint = mcp_prompt(system_prompt, profile_fingerprint, servers)
         user_skill = request.headers.get(USER_SKILL_HEADER)
         if user_skill is not None:
@@ -501,6 +563,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
         saved = await chat_save_response(app, profile, principal, history, body.model, body.stream, body.stream_options is None or body.stream_options.get("include_usage", False))
         if saved is not None:
             return saved
+        history = not_saved_note(profile, history)
         profile = await resolve_profile(app, profile)
         messages = [{"role": "system", "content": system_prompt + today_line(app.state.zone)}, *history]
         payload = {"model": profile.backend_model, "messages": messages, "stream": body.stream,
@@ -524,11 +587,14 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                 payload["stream_options"] = body.stream_options
         if body.stream and body.stream_options is None:
             payload["stream_options"] = {"include_usage": True}
-        recall_state = await apply_recall(app, profile, principal, messages)
+        if recall_on:
+            recall_state = await apply_recall(app, profile, principal, messages)
+        else:
+            recall_state = {"status": "gated" if profile.memory_recall.enabled else "disabled", "count": 0, "bytes": 0}
         if profile.research or servers:
             result = await research_response(app, profile, payload, body.model, body.stream, principal, servers,
                                              request.headers.get(RUNS_HEADER) == "1")
-            result.headers.update({**recall_headers(recall_state), **runtime_headers(profile), "X-Harness-Skill-Selection": selected_skill,
+            result.headers.update({**recall_headers(recall_state), **decision_headers(decision_state), **runtime_headers(profile), "X-Harness-Skill-Selection": selected_skill,
                                    "X-Harness-MCP": ",".join(servers) or "none"})
             return result
         if app.state.slots.locked():
@@ -590,7 +656,7 @@ def create_app(config_path=None, api_key=None, backend_url=None, transport=None,
                     ("" if compact_state["status"] == "compacted" else "\n\n---") + run_line(profile.backend_model, body.model)
                     if profile.run_line else "")
                 headers = {"X-Request-ID": rid, "X-Harness-Profile-SHA256": profile_fingerprint, "X-Harness-Skill-Selection": selected_skill, "X-Harness-MCP": "none",
-                           "X-Harness-Dropped-Messages": str(dropped), **recall_headers(recall_state), **context_headers(compact_state), **runtime_headers(profile)}
+                           "X-Harness-Dropped-Messages": str(dropped), **recall_headers(recall_state), **decision_headers(decision_state), **context_headers(compact_state), **runtime_headers(profile)}
                 if not body.stream:
                     await response.aread()
                     result = response.json()

@@ -208,3 +208,14 @@ def test_tools_validate_arguments_and_report_refusals(monkeypatch):
         assert (await call("web_context", {"query": "x", "freshness": "pq"}))["error"] == "invalid_arguments"
         assert (await call("web_context", {"query": "x"}))["error"] == "search_failed"
     run(go())
+
+
+def test_read_chars_setting(monkeypatch):
+    monkeypatch.delenv("WEB_READ_CHARS", raising=False)
+    assert web.read_chars_from_env() == 48000
+    monkeypatch.setenv("WEB_READ_CHARS", "64000")
+    assert web.read_chars_from_env() == 64000
+    for bad in ("3999", "120001"):
+        monkeypatch.setenv("WEB_READ_CHARS", bad)
+        with pytest.raises(ValueError):
+            web.read_chars_from_env()

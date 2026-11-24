@@ -36,7 +36,20 @@ BRAVE_KEY = os.getenv("BRAVE_API_KEY", "")
 DAILY_SEARCH_LIMIT = int(os.getenv("WEB_DAILY_SEARCH_LIMIT", "300"))
 MAX_CONCURRENT = int(os.getenv("WEB_MAX_CONCURRENT", "4"))
 MAX_PAGE_BYTES = 2_000_000
-MAX_TEXT_CHARS = 16000
+
+
+def read_chars_from_env():
+    """Characters of one page web_read returns (WEB_READ_CHARS, default 48,000)."""
+    raw = os.getenv("WEB_READ_CHARS", "").strip()
+    if not raw:
+        return 48000
+    value = int(raw)
+    if not 4000 <= value <= 120000:
+        raise ValueError("WEB_READ_CHARS must be between 4,000 and 120,000")
+    return value
+
+
+MAX_TEXT_CHARS = read_chars_from_env()
 # Links returned with a page so the harness can let the model follow them (home policy).
 MAX_LINKS = 50
 # web_context: Brave's token budget is approximate, so characters are capped here too.

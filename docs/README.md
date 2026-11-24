@@ -9,6 +9,7 @@ from a design idea or a decision record.
 | Page | Read it when |
 |---|---|
 | [team-deployment.md](team-deployment.md) | You run the harness for a team: sign-in, the team knowledge base, backups, updates |
+| [school-and-general-profiles.md](home/school-and-general-profiles.md) | You want the school and general knowledge profiles at home |
 
 ## Reference: how each feature works
 
@@ -21,6 +22,7 @@ These describe features that are built and running.
 | [tools-and-models.md](reference/tools-and-models.md) | Client tools, profile IDs and automatic model selection |
 | [vault-mcp.md](reference/vault-mcp.md) | The vault tool server and turning tool servers on or off per chat |
 | [memory.md](reference/memory.md) | Persistent memory on ParadeDB |
+| [decision-gate.md](reference/decision-gate.md) | A small decision model that skips memory or tools a message doesn't need |
 | [compaction.md](reference/compaction.md) | Summarizing long chats so they fit the model's context window |
 | [research.md](reference/research.md) | The harness's own tool loop and the demo research profile |
 | [telemetry.md](reference/telemetry.md) | Token usage, KV cache statistics and metrics |

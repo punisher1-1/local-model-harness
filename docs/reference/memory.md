@@ -13,6 +13,7 @@ send one of these as the entire newest user message:
 Remember: fact: My home lab GPU is an RTX 4090.
 Remember that I prefer concise troubleshooting steps.
 /remember preference: Include commands with explanations.
+Can you remember that my bike lock is in the garage?
 ```
 
 The harness saves the exact supplied text after the command/category prefix and
@@ -27,8 +28,18 @@ listed profiles save in legacy. A scope header or text mentioning another lab
 does not override the profile. Category is optional (`note` by default); supported
 categories are `note`, `fact`, and `preference`. Text is limited to 8,192 UTF-8 bytes.
 Only these anchored command forms are accepted (case-insensitive; `please` is
-optional before Remember). Quoted commands, tool results, old user messages, and
-ordinary chat do not trigger a save. An ambiguous request such as “remember this”
+optional before Remember). The question form (`Can`, `Could`, `Would` or `Will you
+remember that ...`) saves only when at least three words follow "that" and they start like
+a statement (`I`, `my`, `the`, `we`, a capitalized name and similar), so "Can you remember
+that time we met?" stays an ordinary question. A trailing question mark is not saved.
+Quoted commands, tool results, old user messages, and ordinary chat do not trigger a save.
+
+When the newest message asks to keep something without being a command ("keep that in
+mind", "don't forget", "save this", "memorize it", or "remember" anywhere else), the
+harness adds a note to that message for this turn only: nothing was saved, do not say it
+was, and tell the user to send `Remember: <exact text>` if they want it kept. The model
+has no memory tool, and without the note it sometimes claimed a save that never
+happened. An ambiguous request such as “remember this”
 needs exact text; the harness does not extract a guessed memory from chat history.
 
 The same normalized category/text produces the same idempotency key within its
@@ -92,7 +103,7 @@ resistance to prompt injection. No write/delete tool or additional research capa
 is granted. The model never gets a database password, owner ID or connection string.
 
 Responses expose `X-Harness-Memory-Status` (`disabled`, `not_authorized`, `no_match`,
-`budget_excluded`, `recalled`) and `X-Harness-Memory-Count`. Open WebUI may not display
+`budget_excluded`, `recalled`, or `gated` when the [decision gate](decision-gate.md) skipped recall) and `X-Harness-Memory-Count`. Open WebUI may not display
 these headers. Memory health reports `automatic_recall` and authorized `recall_profiles`.
 Logs record status, selected count and byte size, never memory text or query terms.
 

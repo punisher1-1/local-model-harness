@@ -139,6 +139,40 @@ Models must support text chat and vLLM's chat `/tokenize`; tool profiles additio
 need functioning tool parsing. A reasoning-only model that cannot complete a bounded
 summary may reject compaction until an appropriate model preset is configured.
 
+### Inkling 2 Mini presets
+
+Every bundled profile with a `qwen3.8-27b` preset also has an `inkling-2-mini` preset,
+ready for a swap. They apply only when vLLM serves that exact ID, so they change nothing
+while Qwen runs. Each one keeps the profile's Qwen reasoning effort name, thinking cap
+and context window, and drops Qwen's sampling extras:
+
+- `temperature: 1.0`, the only sampling value in the model's `generation_config.json`.
+  `top_p` and `presence_penalty` are null, and no `top_k`, `min_p` or
+  `repetition_penalty` is sent. Tune these after real use; the model card gives no others.
+- `chat_template_kwargs: {reasoning_effort: <low|medium>}`. Inkling's template accepts
+  `none`, `minimal`, `low`, `medium` (0.7), `high` (0.9), `xhigh`, `max` or a number from
+  0 to 0.99, and defaults to `high` when nothing is sent, so an unknown model ID would
+  think at high effort on every message. It has no `enable_thinking`; even `minimal`
+  still reasons a little.
+- The thinking cap is kept because the card warns that the model can get stuck in long
+  reasoning loops and recommends limiting output.
+
+The vLLM launch must match:
+
+- vLLM 0.35 or later (the recipe needs the nightly until then), on a build with kernels
+  for the GPU. On 2026-11-21 the test image had none for RTX 50-series (sm_120).
+- `--served-model-name inkling-2-mini`. Without it vLLM serves the repository ID
+  `thinkingmachines/Inkling-2-Mini` and no preset applies.
+- `--reasoning-parser inkling`, plus `--enable-auto-tool-choice --tool-call-parser inkling`
+  for tool profiles. Keep `--generation-config auto`; drop Qwen's custom chat template
+  and its Mamba flags.
+- `--max-model-len` sized for the cards; profiles cap context at the advertised value.
+
+On the first run, check that a request with `thinking_token_budget` is accepted with the
+Inkling reasoning parser (`local-tools`, `local-bench` and `it-troubleshoot` send a fixed
+budget; ratio profiles send one per call). Then run the benchmark prompts with
+`local-bench` and compare against the Qwen results.
+
 Response headers identify the resolved model and context:
 `X-Harness-Backend-Model`, `X-Harness-Context-Window`. The profile fingerprint covers
 all configured recipes; logs identify the actual backend and effective sampling.

@@ -1,6 +1,6 @@
 # ADR-003: Model-run Python sandbox on the Hermes VM
 
-**Status:** Accepted; implemented in `sandbox/` and `code_mcp.py`, pending deployment on Hermes
+**Status:** Accepted; implemented in `sandbox/` and `code_mcp.py`, deployed on Hermes (running as of 2026-11-20, per the project owner)
 **Date:** 2026-10-15
 **Deciders:** Project owner
 

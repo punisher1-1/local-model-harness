@@ -486,7 +486,10 @@ async def run_research(app, profile, payload, public_model, rid, principal, serv
                     if runs:
                         answer["harness_runs"] = runs
                     return answer
-                if choice.get("finish_reason") != "tool_calls" or not isinstance(tool_calls, list):
+                # vLLM (like the OpenAI API) reports a call made under a forced, named tool_choice
+                # with finish_reason "stop", not "tool_calls". The call is still checked below.
+                expected = {"tool_calls", "stop"} if force_read else {"tool_calls"}
+                if choice.get("finish_reason") not in expected or not isinstance(tool_calls, list):
                     raise ResearchProtocolError("malformed_tool_completion")
                 if not can_call or len(tool_calls) > policy.max_tool_calls - calls_used:
                     raise HTTPException(400, "Research tool-call budget exceeded")

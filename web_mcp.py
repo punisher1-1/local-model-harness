@@ -19,7 +19,11 @@ from mcp_client import call_tool, invalid_arguments, trusted_url, unavailable
 
 COLLECTION = "web"
 NAMES = frozenset({"web_context", "web_search", "web_read"})
-TEXT_CAP = 16000
+# Characters of one page web_read returns (HARNESS_WEB_READ_CHARS). 48,000 fits a typical GitHub
+# release page whole (vLLM v0.34.0: 45,265); the old 16,000 kept about a third of it.
+DEFAULT_READ_CHARS = 48000
+READ_CHARS_RANGE = (4000, 120000)
+TEXT_CAP = DEFAULT_READ_CHARS
 CONTEXT_CAP = 32000
 # web_read fetches only URLs the harness has already seen in this request, so a model steered
 # by injected text cannot put private data into a URL of its own making (docs/adr/ADR-005).
@@ -65,7 +69,7 @@ SCHEMAS = [{"type": "function", "function": {"name": name, "description": descri
     ("web_search", "List web results (Brave): up to 8 titles, URLs, short snippets and ages, without page content. "
                    "Use it only when you need links to choose from or the user asks for search results; to answer a "
                    "question, use web_context instead. Each search uses paid credits.", Search),
-    ("web_read", "Read one public web page as plain text, up to 16,000 characters. The URL must be one that web_search "
+    ("web_read", "Read one public web page as plain text; a long page is cut off and marked truncated. The URL must be one that web_search "
                  "or web_context returned in this request, a link listed with a page web_read returned, or one the user "
                  "wrote in their message; any other URL is refused. Read the most relevant result before relying on it.", Read)]]
 
@@ -136,6 +140,20 @@ def user_urls(messages):
     return found
 
 
+def read_chars_from_env():
+    raw = os.getenv("HARNESS_WEB_READ_CHARS", "").strip()
+    if not raw:
+        return DEFAULT_READ_CHARS
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError("HARNESS_WEB_READ_CHARS must be a whole number of characters") from None
+    low, high = READ_CHARS_RANGE
+    if not low <= value <= high:
+        raise ValueError(f"HARNESS_WEB_READ_CHARS must be between {low:,} and {high:,}")
+    return value
+
+
 class WebStore:
     def __init__(self):
         self.url = os.getenv("HARNESS_WEB_MCP_URL", "")
@@ -145,6 +163,7 @@ class WebStore:
         if len(self.token) < 24:
             raise ValueError("Set HARNESS_WEB_MCP_TOKEN to the web server's token (24+ characters)")
         self.policy = policy_from_env()
+        self.text_cap = read_chars_from_env()
         self.sha256 = hashlib.sha256((self.url + json.dumps(SCHEMAS, sort_keys=True)).encode()).hexdigest()
         self.seen = set()
         self.user_urls = set()
@@ -215,7 +234,7 @@ class WebStore:
                     "next_step": "Read the most relevant result with web_read before relying on it."}
         text = str(data.get("text", ""))
         page = {"source": "web", "url": str(data.get("url", parsed["url"]))[:2048], "title": str(data.get("title", ""))[:300],
-                "text": text[:TEXT_CAP], "truncated": data.get("truncated") is True or len(text) > TEXT_CAP}
+                "text": text[:self.text_cap], "truncated": data.get("truncated") is True or len(text) > self.text_cap}
         self.sources.append(page["url"])
         if self.policy == "home":
             # A listed link is a fixed string from the page, so the model cannot add data to it.
