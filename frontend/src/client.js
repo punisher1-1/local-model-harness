@@ -210,6 +210,16 @@ export async function loadHistory(token) {
   do {const page=await historyRequest(token,`?offset=${offset}`);rows.push(...page.data);offset=page.next_offset;} while(offset!==null);
   return rows;
 }
+// Per-person display choices (/v1/preferences): profiles hidden from this person's pickers.
+export async function preferencesRequest(method='GET', body) {
+  const response=await request('/v1/preferences',{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
+  if (!response.ok) throw new Error(await failure(response, `Preferences request failed (HTTP ${response.status}).`));
+  return response.json();
+}
+// Delete several saved chats at once; resolves to the IDs the harness deleted.
+export async function deleteConversations(ids) {
+  return (await historyRequest('', '/delete', 'POST', {ids})).deleted;
+}
 export async function skillRequest(path='', method='GET', body) {
   const response=await request('/v1/skills'+path,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
   if (!response.ok) throw new Error(await failure(response, `Skill request failed (HTTP ${response.status}).`));

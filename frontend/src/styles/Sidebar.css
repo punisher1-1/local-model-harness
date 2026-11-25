@@ -10,6 +10,20 @@
 .list-action, .row-action { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: var(--radius-sm); color: var(--text-secondary); }
 .list-action:hover:not(:disabled), .row-action:hover:not(:disabled) { background: var(--bg-tertiary); color: var(--text-primary); }
 .chats-title { margin-top: 18px; }
+.list-text-action { font-size: 12px; font-weight: 500; color: var(--text-secondary); padding: 3px 8px; border-radius: var(--radius-sm); }
+.list-text-action:hover:not(:disabled) { background: var(--bg-tertiary); color: var(--text-primary); }
+.select-row { margin: 0 0 12px; }
+.select-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; font-size: 12px; font-weight: 600; color: var(--text-primary); padding: 6px 9px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.select-btn:hover:not(:disabled) { background: var(--bg-tertiary); border-color: var(--accent-color); color: var(--accent-color); }
+.pick-bar { display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 8px; border-radius: var(--radius-md); background: var(--bg-tertiary); }
+.pick-all { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.pick-delete { font-size: 12px; font-weight: 600; color: var(--danger); padding: 3px 8px; border-radius: var(--radius-sm); border: 1px solid #ffb6b355; }
+.pick-delete:hover:not(:disabled) { background: #ffb6b31a; }
+.pick-delete:disabled { opacity: .45; }
+.chat-item.pick { cursor: pointer; }
+.chat-item.pick input { flex-shrink: 0; margin: 0 2px; accent-color: var(--accent-color); }
+.pick-hint { margin: 6px 10px 0; }
+.chat-item.picked { background: var(--accent-glow); color: var(--text-primary); }
 
 .project-list { display: flex; flex-direction: column; gap: 2px; }
 .project-row { display: flex; align-items: center; gap: 2px; border-radius: var(--radius-md); padding-right: 4px; }
@@ -56,4 +70,8 @@
   .project-row .row-action { opacity: 1; }
   .chat-item.nested { padding-left: 10px; }
   .chat-item { width: 180px; flex-shrink: 0; padding: 8px 10px; }
+  /* Keep Select and its toolbar in the narrow layout's chat strip; only the heading text hides. */
+  .select-row { display: flex; flex-shrink: 0; margin: 0; }
+  .select-btn { width: auto; height: 100%; }
+  .pick-bar { gap: 8px; }
 }

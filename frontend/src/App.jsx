@@ -5,7 +5,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsModal from './components/SettingsModal';
 import ProjectModal from './components/ProjectModal';
-import {profiles as getProfiles, chat, historyRequest, loadHistory, projectRequest, projectDefaults, skillRequest, availableWorkflow, userSkillId, storedConversation, appendedConversation, documentsConfig, replayHistory, newId, startSession, currentSession, endSession, onUnauthorized, authConfig, SIGN_IN_ERRORS} from './client';
+import {profiles as getProfiles, chat, historyRequest, loadHistory, projectRequest, preferencesRequest, deleteConversations, projectDefaults, skillRequest, availableWorkflow, userSkillId, storedConversation, appendedConversation, documentsConfig, replayHistory, newId, startSession, currentSession, endSession, onUnauthorized, authConfig, SIGN_IN_ERRORS} from './client';
 import './App.css';
 
 // App owns the sign-in state and the conversation list. The harness credential
@@ -18,6 +18,7 @@ function App() {
   const [auth, setAuth] = useState(null);
   const [account, setAccount] = useState(null); // name/email/groups for a passkey sign-in; null for a key
   const [catalog, setCatalog] = useState([]);
+  const [hidden, setHidden] = useState([]); // profiles this person hid from their pickers
   const [sessions, setSessions] = useState([]);
   const [active, setActive] = useState(null);
   const [selected, setSelected] = useState('');
@@ -36,6 +37,8 @@ function App() {
   const abort = useRef(null);
   const session = sessions.find(s => s.id === active);
   const profile = catalog.find(p => p.id === (session?.profile || selected));
+  // Pickers list the profiles this person has not hidden, plus the one in use.
+  const visible = catalog.filter(p => !hidden.includes(p.id) || p.id === (session?.profile || selected));
 
   // Tool servers that start switched on for a new chat on this profile.
   function mcpDefaults(p) {
@@ -52,7 +55,7 @@ function App() {
 
   function reset() {
     abort.current?.abort();
-    setConnected(false); setAccount(null); setCatalog([]); setSessions([]); setActive(null); setSkill(''); setError(''); setSettingsOpen(false);
+    setConnected(false); setAccount(null); setCatalog([]); setHidden([]); setSessions([]); setActive(null); setSkill(''); setError(''); setSettingsOpen(false);
     setProjects([]); setUserSkills([]); setProjectId(null); setEditing(undefined);
   }
 
@@ -70,10 +73,13 @@ function App() {
   async function loadWorkspace() {
     const data = await getProfiles();
     if (!data.length) throw new Error('This identity has no available profiles.');
-    const [saved, folders, own, documents] = await Promise.all([loadHistory(), projectRequest(), skillRequest(), documentsConfig()]);
-    setDocs(documents);
+    const [saved, folders, own, documents, prefs] = await Promise.all([loadHistory(), projectRequest(), skillRequest(), documentsConfig(),
+      preferencesRequest().catch(() => ({hidden_profiles: []}))]);
+    const hide = prefs.hidden_profiles || [];
+    const first = data.find(p => !hide.includes(p.id)) || data[0];
+    setDocs(documents); setHidden(hide);
     setProjects(folders.data); setUserSkills(own.data); setShareGroups(own.share_groups || []);
-    setSessions(saved); setActive(null); setCatalog(data); chooseProfile(data[0].id, data); setError(''); setNotice(''); setConnected(true);
+    setSessions(saved); setActive(null); setCatalog(data); chooseProfile(first.id, data); setError(''); setNotice(''); setConnected(true);
   }
 
   async function connect(key) {
@@ -165,6 +171,31 @@ function App() {
     try { await saveSession(session); setError(''); } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
 
+  // Hide or show profiles in this person's pickers. A new chat on a profile just hidden
+  // moves to the first one still shown.
+  async function saveHidden(list) {
+    const saved = await preferencesRequest('PUT', {hidden_profiles: list});
+    setHidden(saved.hidden_profiles);
+    if (!session && saved.hidden_profiles.includes(selected)) {
+      const next = catalog.find(p => !saved.hidden_profiles.includes(p.id));
+      if (next) chooseProfile(next.id);
+    }
+  }
+
+  // Delete the chats picked in the sidebar's Select mode. Returns true when done.
+  async function removeSessions(ids) {
+    if (!ids.length) return false;
+    if (!window.confirm(`Delete ${ids.length} saved conversation${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return false;
+    setBusy(true);
+    try {
+      const gone = new Set(await deleteConversations(ids));
+      setSessions(list => list.filter(s => !gone.has(s.id)));
+      if (gone.has(active)) setActive(null);
+      setError(gone.size < ids.length ? `${ids.length - gone.size} chat${ids.length - gone.size === 1 ? ' was' : 's were'} not found and may already be deleted.` : '');
+      return true;
+    } catch (e) { setError(e.message); return false; } finally { setBusy(false); }
+  }
+
   async function removeSession() {
     if (!window.confirm('Delete this saved conversation? This cannot be undone.')) return;
     setBusy(true);
@@ -238,16 +269,16 @@ function App() {
         <div className="main-content">
           <Sidebar account={account} sessions={sessions} projects={projects} active={active} activeProject={session ? session.project_id : projectId} busy={busy}
             onNewChat={fresh} onSelect={openSession} onEditProject={p => setEditing(p)}
-            onOpenSettings={() => setSettingsOpen(true)} onDisconnect={disconnect}/>
-          <ChatArea session={session} profile={profile} catalog={catalog} busy={busy} error={error}
+            onOpenSettings={() => setSettingsOpen(true)} onDisconnect={disconnect} onDeleteMany={removeSessions}/>
+          <ChatArea session={session} profile={profile} catalog={visible} busy={busy} error={error}
             projects={projects} projectId={session ? session.project_id || '' : projectId || ''} onSelectProject={moveToProject} userSkills={userSkills} docs={docs}
             selected={session?.profile || selected} onSelectProfile={id => chooseProfile(id)}
             skill={skill} onSelectSkill={setSkill} mcp={mcp} onToggleMcp={toggleMcp} onSend={send} onStop={() => abort.current?.abort()}
             onDelete={removeSession} onRetrySave={retrySave}/>
         </div>
       )}
-      {settingsOpen && <SettingsModal catalog={catalog} userSkills={userSkills} shareGroups={shareGroups} onSkillsChanged={skillsChanged} onDisconnect={disconnect} onClose={() => setSettingsOpen(false)}/>}
-      {editing !== undefined && <ProjectModal project={editing} catalog={catalog} userSkills={userSkills} defaultProfile={selected}
+      {settingsOpen && <SettingsModal catalog={catalog} hidden={hidden} onHiddenChanged={saveHidden} userSkills={userSkills} shareGroups={shareGroups} onSkillsChanged={skillsChanged} onDisconnect={disconnect} onClose={() => setSettingsOpen(false)}/>}
+      {editing !== undefined && <ProjectModal project={editing} catalog={catalog.filter(p => !hidden.includes(p.id) || p.id === editing?.profile)} userSkills={userSkills} defaultProfile={selected}
         onSave={saveProject} onDelete={deleteProject} onClose={() => setEditing(undefined)}/>}
     </div>
   );

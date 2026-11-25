@@ -91,6 +91,19 @@ class Project(BaseModel):
     mcp_servers: list[Annotated[str, Field(min_length=1, max_length=64)]] = Field(default_factory=list, max_length=8)
 
 
+class BulkDelete(BaseModel):
+    """Saved chats to delete at once (the sidebar's Select mode)."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    ids: list[UUID] = Field(min_length=1, max_length=1000)
+
+
+class Preferences(BaseModel):
+    """Per-person display choices. Hiding a profile only removes it from this person's
+    pickers; it is not a permission and leaves profiles.yaml and other people untouched."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    hidden_profiles: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(default_factory=list, max_length=256)
+
+
 MAX_PROJECTS = 100
 MAX_USER_SKILLS = 50
 USER_SKILL_CHARS = 16000
@@ -145,6 +158,7 @@ def install_conversations(app, auth):
                 db.execute("ALTER TABLE user_skills ADD COLUMN shared_groups TEXT NOT NULL DEFAULT '[]'")
             if "profiles" not in {row["name"] for row in db.execute("PRAGMA table_info(user_skills)")}:
                 db.execute("ALTER TABLE user_skills ADD COLUMN profiles TEXT NOT NULL DEFAULT '[]'")
+            db.execute("CREATE TABLE IF NOT EXISTS preferences (owner TEXT PRIMARY KEY, hidden_profiles TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS projects (owner TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, profile TEXT NOT NULL, skill TEXT NOT NULL, mcp_servers TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(owner,id))")
         os.chmod(path, 0o600)
 
@@ -164,12 +178,15 @@ def install_conversations(app, auth):
     def response(data):
         return JSONResponse(data, headers={"Cache-Control":"no-store"})
 
-    async def bounded_body(request):
+    async def bounded_body(request, limit=MAX_BYTES, message=TOO_LARGE):
+        # Stop reading as soon as the body passes the limit, so an oversized upload is never held whole.
+        if int(request.headers.get("content-length") or 0) > limit:
+            raise HTTPException(413, message)
         body = bytearray()
         async for chunk in request.stream():
             body.extend(chunk)
-            if len(body)>MAX_BYTES:
-                raise HTTPException(413, TOO_LARGE)
+            if len(body)>limit:
+                raise HTTPException(413, message)
         return body
 
     def existing_project(db, owner, project_id):
@@ -269,6 +286,58 @@ def install_conversations(app, auth):
                 raise HTTPException(409, "This chat changed in another tab. Reopen it before deleting")
             db.execute("DELETE FROM conversations WHERE owner=? AND id=?", (owner,str(cid)))
         return Response(status_code=204)
+
+    @app.post("/v1/conversations/delete", dependencies=[Depends(auth)])
+    async def delete_many(request: Request):
+        """Delete several saved chats at once. Chats this identity cannot see (another
+        owner, or a profile it is not granted) are skipped, as if they did not exist."""
+        p, owner = identity(request)
+        body = await bounded_body(request, 65536, "Too many chats in one request")
+        try:
+            item = BulkDelete.model_validate_json(body)
+        except ValidationError:
+            raise HTTPException(400, "Invalid chat list") from None
+        ids = sorted({str(cid) for cid in item.ids})
+        def commit():
+            with database(path) as db:
+                db.execute("BEGIN IMMEDIATE")
+                marks = ",".join("?" * len(ids))
+                rows = db.execute(f"SELECT id,profile FROM conversations WHERE owner=? AND id IN ({marks})", (owner, *ids)).fetchall()
+                gone = [r["id"] for r in rows if p.can_profile(r["profile"])]
+                if gone:
+                    db.execute(f"DELETE FROM conversations WHERE owner=? AND id IN ({','.join('?' * len(gone))})", (owner, *gone))
+            return gone
+        return response({"deleted": await run_in_threadpool(commit)})
+
+    def visible_hidden(p, hidden):
+        # Profiles removed from profiles.yaml or no longer granted drop out of the list.
+        return [name for name in hidden if name in app.state.settings.profiles and p.can_profile(name)]
+
+    @app.get("/v1/preferences", dependencies=[Depends(auth)])
+    def preferences(request: Request):
+        p, owner = identity(request)
+        with database(path) as db:
+            row = db.execute("SELECT hidden_profiles FROM preferences WHERE owner=?", (owner,)).fetchone()
+        return response({"hidden_profiles": visible_hidden(p, json.loads(row["hidden_profiles"]) if row else [])})
+
+    @app.put("/v1/preferences", dependencies=[Depends(auth)])
+    async def save_preferences(request: Request):
+        p, owner = identity(request)
+        body = await bounded_body(request, 65536, "Preferences are too large")
+        try:
+            item = Preferences.model_validate_json(body)
+        except ValidationError:
+            raise HTTPException(400, "Invalid preferences") from None
+        hidden = list(dict.fromkeys(item.hidden_profiles))
+        if any(name not in app.state.settings.profiles or not p.can_profile(name) for name in hidden):
+            raise HTTPException(400, "Unknown profile")
+        if not any(p.can_profile(name) and name not in hidden for name in app.state.settings.profiles):
+            raise HTTPException(409, "Keep at least one profile visible")
+        with database(path) as db:
+            db.execute("INSERT INTO preferences (owner,hidden_profiles,updated_at) VALUES (?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now')) "
+                       "ON CONFLICT(owner) DO UPDATE SET hidden_profiles=excluded.hidden_profiles, updated_at=excluded.updated_at",
+                       (owner, json.dumps(hidden)))
+        return response({"hidden_profiles": hidden})
 
     def project_row(row):
         return {"id": row["id"], "name": row["name"], "profile": row["profile"], "skill": row["skill"],

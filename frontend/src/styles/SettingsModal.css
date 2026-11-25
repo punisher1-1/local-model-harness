@@ -82,3 +82,9 @@
 .kb-test input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-input); color: var(--text-primary); font-size: 14px; }
 .kb-results { margin: 0; padding-left: 20px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .skill-editor-meta .spacer { flex: 1; }
+.profile-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.profile-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: var(--radius-md); }
+.profile-row.hidden-profile { opacity: .6; }
+.profile-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+.profile-id { font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+.profile-tag { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--bg-tertiary); color: var(--text-secondary); }

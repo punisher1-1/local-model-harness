@@ -9,15 +9,24 @@ import '../styles/ProjectModal.css';
 
 // What the harness grants this credential (read-only; policy is server-owned), plus the
 // user's own skills, which shape answers but never change permissions or tools.
-function SettingsModal({catalog, userSkills, shareGroups, onSkillsChanged, onDisconnect, onClose}) {
+function SettingsModal({catalog, hidden = [], onHiddenChanged, userSkills, shareGroups, onSkillsChanged, onDisconnect, onClose}) {
   const [tab, setTab] = useState('connection');
   const [who, setWho] = useState(null);
   const [session, setSession] = useState(null);
   const [error, setError] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [saving, setSaving] = useState(false);
   // Memory shows only when this identity may read at least one scope.
   // The knowledge base tab shows when this identity may search the team knowledge base.
   const kb = who?.tools?.includes('kb_search') && who.collections?.includes('team_kb');
   const memory = who?.memory_scopes?.length > 0 && who.memory_permissions?.includes('memory.read');
+
+  async function toggleHidden(id) {
+    setSaving(true);
+    try { await onHiddenChanged(hidden.includes(id) ? hidden.filter(h => h !== id) : [...hidden, id]); setProfileError(''); }
+    catch (e) { setProfileError(e.message); } finally { setSaving(false); }
+  }
+  const shown = catalog.filter(p => !hidden.includes(p.id)).length;
 
   useEffect(() => {
     let live = true;
@@ -88,18 +97,28 @@ function SettingsModal({catalog, userSkills, shareGroups, onSkillsChanged, onDis
             {tab === 'profiles' && (
               <section className="settings-section">
                 <h3>Available profiles</h3>
-                <p className="setting-desc">Prompts, sampling, memory and tools are configured on the harness in profiles.yaml.</p>
-                <dl className="settings-list">
-                  {catalog.map(p => (
-                    <React.Fragment key={p.id}>
-                      <dt>{p.id}</dt>
-                      <dd>
-                        {p.skills.length ? `Workflows: ${p.skills.join(', ')}` : 'No workflows'}
-                        {p.server_tools?.length ? <><br/>Harness tools: {p.server_tools.join(', ')}</> : null}
-                      </dd>
-                    </React.Fragment>
-                  ))}
-                </dl>
+                <p className="setting-desc">Hide a profile to remove it from your Profile menus. Only your account is affected: other people still see it,
+                  and your existing chats on it still open. Prompts, sampling, memory and tools are configured on the harness in profiles.yaml.</p>
+                {profileError && <p className="error" role="alert">{profileError}</p>}
+                <ul className="profile-list">
+                  {catalog.map(p => {
+                    const off = hidden.includes(p.id);
+                    return (
+                      <li key={p.id} className={`profile-row ${off ? 'hidden-profile' : ''}`}>
+                        <div className="profile-info">
+                          <span className="profile-id">{p.id}{off && <span className="profile-tag">Hidden</span>}</span>
+                          <span className="muted">
+                            {p.skills.length ? `Workflows: ${p.skills.join(', ')}` : 'No workflows'}
+                            {p.server_tools?.length ? ` · Harness tools: ${p.server_tools.join(', ')}` : ''}
+                          </span>
+                        </div>
+                        <button type="button" className="btn secondary-btn" disabled={saving || (!off && shown <= 1)}
+                          title={!off && shown <= 1 ? 'At least one profile stays visible' : undefined}
+                          aria-label={`${off ? 'Show' : 'Hide'} ${p.id}`} onClick={() => toggleHidden(p.id)}>{off ? 'Show' : 'Hide'}</button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </section>
             )}
           </div>

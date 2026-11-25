@@ -7,7 +7,18 @@ const ChatIcon = () => (
   </svg>
 );
 
-function ChatItem({s, active, busy, onSelect, nested}) {
+function ChatItem({s, active, busy, onSelect, nested, picking, picked, onPick}) {
+  if (picking) {
+    return (
+      <label className={`chat-item pick ${nested ? 'nested' : ''} ${picked ? 'picked' : ''}`}>
+        <input type="checkbox" checked={picked} disabled={busy} onChange={() => onPick(s.id)}/>
+        <span className="chat-item-text">
+          <span className="chat-item-title">{s.title}</span>
+          <span className="chat-item-profile">{s.profile}</span>
+        </span>
+      </label>
+    );
+  }
   return (
     <button className={`chat-item ${nested ? 'nested' : ''} ${s.id === active ? 'active' : ''}`} disabled={busy} onClick={() => onSelect(s)}
       aria-current={s.id === active ? 'page' : undefined}>
@@ -21,13 +32,45 @@ function ChatItem({s, active, busy, onSelect, nested}) {
 }
 
 // Projects are folders of chats; a chat whose project no longer exists shows under Chats.
-function Sidebar({account, sessions, projects, active, activeProject, busy, onNewChat, onSelect, onEditProject, onOpenSettings, onDisconnect}) {
+function Sidebar({account, sessions, projects, active, activeProject, busy, onNewChat, onSelect, onEditProject, onOpenSettings, onDisconnect, onDeleteMany}) {
   const [open, setOpen] = useState(() => new Set());
+  // Select mode: tick chats (in projects too) and delete them together.
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
   const known = new Set(projects.map(p => p.id));
   const loose = sessions.filter(s => !known.has(s.project_id));
 
   // Keep the folder of the chat you are in expanded.
   useEffect(() => { if (activeProject) setOpen(o => o.has(activeProject) ? o : new Set([...o, activeProject])); }, [activeProject]);
+
+  // Forget ticks for chats that no longer exist.
+  useEffect(() => { setPicked(old => { const ids = new Set(sessions.map(s => s.id)); const n = new Set([...old].filter(id => ids.has(id))); return n.size === old.size ? old : n; }); }, [sessions]);
+
+  function pick(id) {
+    setPicked(o => { const n = new Set(o); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  // Entering Select mode opens every project folder that has chats so they can be ticked;
+  // leaving it puts the folders back as they were.
+  const [openBefore, setOpenBefore] = useState(null);
+  function startPicking() {
+    setOpenBefore(open);
+    setOpen(new Set([...open, ...projects.filter(p => sessions.some(s => s.project_id === p.id)).map(p => p.id)]));
+    setPicking(true);
+  }
+
+  function stopPicking() {
+    setPicking(false); setPicked(new Set());
+    if (openBefore) { setOpen(activeProject ? new Set([...openBefore, activeProject]) : openBefore); setOpenBefore(null); }
+  }
+
+  async function deletePicked() {
+    if (await onDeleteMany([...picked])) stopPicking();
+  }
+
+  const item = (s, nested) => <ChatItem key={s.id} s={s} active={active} busy={busy} onSelect={onSelect} nested={nested}
+    picking={picking} picked={picked.has(s.id)} onPick={pick}/>;
+  const all = sessions.length > 0 && picked.size === sessions.length;
 
   function toggle(id) {
     setOpen(o => { const n = new Set(o); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -46,6 +89,28 @@ function Sidebar({account, sessions, projects, active, activeProject, busy, onNe
       </div>
 
       <nav className="sidebar-content" aria-label="Projects and conversations">
+        {sessions.length > 0 && (
+          <div className="select-row">
+            {!picking ? (
+              <button className="select-btn" title="Select chats to delete" disabled={busy} onClick={startPicking}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="3"></rect><polyline points="8 12 11 15 16 9"></polyline>
+                </svg>
+                Select chats
+              </button>
+            ) : (
+              <div className="pick-bar" role="toolbar" aria-label="Delete several chats">
+                <label className="pick-all">
+                  <input type="checkbox" checked={all} disabled={busy} onChange={() => setPicked(all ? new Set() : new Set(sessions.map(s => s.id)))}/>
+                  All ({sessions.length})
+                </label>
+                <button className="pick-delete" disabled={busy || !picked.size} onClick={deletePicked}>Delete {picked.size || ''}</button>
+                <button className="list-text-action" disabled={busy} onClick={stopPicking}>Cancel</button>
+              </div>
+            )}
+            {picking && <p className="empty-history pick-hint">Tick chats in projects or below, then Delete.</p>}
+          </div>
+        )}
         <div className="list-heading">
           <h2 className="list-title">Projects</h2>
           <button className="list-action" title="New project" aria-label="New project" disabled={busy} onClick={() => onEditProject(null)}>
@@ -85,7 +150,7 @@ function Sidebar({account, sessions, projects, active, activeProject, busy, onNe
                 </div>
                 {expanded && (
                   <div className="chat-list nested-list">
-                    {chats.map(s => <ChatItem key={s.id} s={s} active={active} busy={busy} onSelect={onSelect} nested/>)}
+                    {chats.map(s => item(s, true))}
                     {!chats.length && <p className="empty-history nested">No chats yet.</p>}
                   </div>
                 )}
@@ -97,7 +162,7 @@ function Sidebar({account, sessions, projects, active, activeProject, busy, onNe
         <h2 className="list-title chats-title">Chats</h2>
         {!loose.length && <p className="empty-history">{sessions.length ? 'Every chat is in a project.' : 'Your conversations will appear here.'}</p>}
         <div className="chat-list">
-          {loose.map(s => <ChatItem key={s.id} s={s} active={active} busy={busy} onSelect={onSelect}/>)}
+          {loose.map(s => item(s, false))}
         </div>
       </nav>
 
